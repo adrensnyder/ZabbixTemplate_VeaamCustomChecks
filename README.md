@@ -1,5 +1,5 @@
 # VeaamCustomChecks_ZabbixTemplate
-I'm not satisfied about the official template of Veeam for zabbix so i've created mine that connects directly to MS SQL or POSTGRE
+I'm not satisfied about the official template of Veeam for zabbix so i've created mine that connects directly to MS SQL or POSTGRES
 
 The v11 use SQL Server.
 The v12 use PostgreSQL and require to have installed psqlodbc in both 32bit/64bit versions from here https://www.postgresql.org/ftp/odbc/releases/
