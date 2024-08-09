@@ -127,7 +127,7 @@ if ($sDriver = "" or $sDatabase = "" or $sServer = "") then
 EndIf
 #EndRegion Check Parameters
 
-#Region Files Handiling
+#Region Files Handling
 ; Log
 $LogName = @ScriptName & ".log"
 $LogDir = $ZabbixBasePath & "\log"
