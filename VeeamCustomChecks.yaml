@@ -1,6 +1,6 @@
 zabbix_export:
   version: '6.0'
-  date: '2024-08-07T09:16:53Z'
+  date: '2024-08-23T07:12:04Z'
   groups:
     - uuid: de1143f089864e559c7816947bcdb5d5
       name: "Templates - \t0_CST_TPL"
@@ -44,28 +44,31 @@ zabbix_export:
           delay: '0'
           description: 'Numbers of guest in check'
           triggers:
-            - uuid: 6b2f428dcf024ecf862dc2102cf93572
-              expression: |
-                nodata(/0_CST_TPL-Veeam Custom Checks/backup.veeam.customchecks.guest.count,{$VEEAM.CST_NODATA01})=1 and 
-                nodata(/0_CST_TPL-Veeam Custom Checks/backup.veeam.customchecks.guest.count,{$VEEAM.CST_NODATA02})=0
-              name: '[VEAAM] Guest Count not Updated'
-              priority: WARNING
-            - uuid: ba9a470b5a934469b9edb7126ebec613
-              expression: |
-                nodata(/0_CST_TPL-Veeam Custom Checks/backup.veeam.customchecks.guest.count,{$VEEAM.CST_NODATA02})=1 and 
-                nodata(/0_CST_TPL-Veeam Custom Checks/backup.veeam.customchecks.guest.count,{$VEEAM.CST_NODATA03})=0
-              name: '[VEAAM] Guest Count not Updated'
-              priority: AVERAGE
-            - uuid: 190671a8f319495290975e2939bb0310
-              expression: |
-                nodata(/0_CST_TPL-Veeam Custom Checks/backup.veeam.customchecks.guest.count,{$VEEAM.CST_NODATA03})=1 and 
-                nodata(/0_CST_TPL-Veeam Custom Checks/backup.veeam.customchecks.guest.count,{$VEEAM.CST_NODATA04})=0
-              name: '[VEAAM] Guest Count not Updated'
-              priority: HIGH
             - uuid: 47863e5ea3aa4977a20f6b11cba128ae
               expression: 'nodata(/0_CST_TPL-Veeam Custom Checks/backup.veeam.customchecks.guest.count,{$VEEAM.CST_NODATA04})=1'
-              name: '[VEAAM] Guest Count not Updated'
+              name: '[VEAAM] Guest Count not Updated (Disaster)'
               priority: DISASTER
+            - uuid: 190671a8f319495290975e2939bb0310
+              expression: 'nodata(/0_CST_TPL-Veeam Custom Checks/backup.veeam.customchecks.guest.count,{$VEEAM.CST_NODATA03})=1'
+              name: '[VEAAM] Guest Count not Updated (High)'
+              priority: HIGH
+              dependencies:
+                - name: '[VEAAM] Guest Count not Updated (Disaster)'
+                  expression: 'nodata(/0_CST_TPL-Veeam Custom Checks/backup.veeam.customchecks.guest.count,{$VEEAM.CST_NODATA04})=1'
+            - uuid: 6b2f428dcf024ecf862dc2102cf93572
+              expression: 'nodata(/0_CST_TPL-Veeam Custom Checks/backup.veeam.customchecks.guest.count,{$VEEAM.CST_NODATA01})=1'
+              name: '[VEAAM] Guest Count not Updated (Low)'
+              priority: WARNING
+              dependencies:
+                - name: '[VEAAM] Guest Count not Updated (Mid)'
+                  expression: 'nodata(/0_CST_TPL-Veeam Custom Checks/backup.veeam.customchecks.guest.count,{$VEEAM.CST_NODATA02})=1'
+            - uuid: ba9a470b5a934469b9edb7126ebec613
+              expression: 'nodata(/0_CST_TPL-Veeam Custom Checks/backup.veeam.customchecks.guest.count,{$VEEAM.CST_NODATA02})=1'
+              name: '[VEAAM] Guest Count not Updated (Mid)'
+              priority: AVERAGE
+              dependencies:
+                - name: '[VEAAM] Guest Count not Updated (High)'
+                  expression: 'nodata(/0_CST_TPL-Veeam Custom Checks/backup.veeam.customchecks.guest.count,{$VEEAM.CST_NODATA03})=1'
             - uuid: 14b262df428c459380d686fe3c557818
               expression: 'last(/0_CST_TPL-Veeam Custom Checks/backup.veeam.customchecks.guest.count)=0'
               name: '[VEEAM] No Guests Found'
@@ -90,7 +93,7 @@ zabbix_export:
           description: 'Numbers of replica type in check'
         - uuid: 28b0d7e7d7234ab0b287268bf62872ac
           name: '[VEEAM] Collect Data'
-          key: 'system.run[c:\zabbix_agent\VeeamCustomChecks.exe  --driver="{$VEEAM.CST.DRIVER}" --server="{$VEEAM.CST.SRV}" --port="{$VEEAM.CST.PORT}" --database="{$VEEAM.CST.DB}" --user="{$VEEAM.CST.USER}" --password="{$VEEAM.CST.PASS}" --agent="{$VEEAM.CST.AGENT.ENABLED}",nowait]'
+          key: 'system.run[C:\zabbix_agent\Avvia_Programmi_Zabbix.exe c:\zabbix_agent\Cst_Check_Veeam.exe  --driver="{$VEEAM.CST.DRIVER}" --server="{$VEEAM.CST.SRV}" --port="{$VEEAM.CST.PORT}" --database="{$VEEAM.CST.DB}" --user="{$VEEAM.CST.USER}" --password="{$VEEAM.CST.PASS}" --agent="{$VEEAM.CST.AGENT.ENABLED}",nowait]'
           delay: '0;1h/1-7,07:00-08:30;1h/1-7,12:30-14:00'
           trends: '0'
           value_type: TEXT
@@ -147,154 +150,116 @@ zabbix_export:
               delay: '0'
               value_type: FLOAT
           trigger_prototypes:
-            - uuid: 4a04bbdb26c4477a923c60c673675465
-              expression: |
-                last(/0_CST_TPL-Veeam Custom Checks/backup.veeam.customchecks.datediff[{#VEEAMGUEST}:{#VEEAMTARGET}])>={$VEEAM.CST_DLY_CHECK01} and 
-                last(/0_CST_TPL-Veeam Custom Checks/backup.veeam.customchecks.enabled[{#VEEAMGUEST}:{#VEEAMTARGET}])=1
-              name: '[VEEAM] [{#VEEAMGUEST}:{#VEEAMTARGET}] Job delayed'
-              priority: WARNING
-            - uuid: 5be0e04e6e034d47bbaf944717138c65
-              expression: |
-                last(/0_CST_TPL-Veeam Custom Checks/backup.veeam.customchecks.datediff[{#VEEAMGUEST}:{#VEEAMTARGET}])>={$VEEAM.CST_DLY_CHECK02} and 
-                last(/0_CST_TPL-Veeam Custom Checks/backup.veeam.customchecks.enabled[{#VEEAMGUEST}:{#VEEAMTARGET}])=1
-              name: '[VEEAM] [{#VEEAMGUEST}:{#VEEAMTARGET}] Job delayed'
-              priority: AVERAGE
-              dependencies:
-                - name: '[VEEAM] [{#VEEAMGUEST}:{#VEEAMTARGET}] Job delayed'
-                  expression: |
-                    last(/0_CST_TPL-Veeam Custom Checks/backup.veeam.customchecks.datediff[{#VEEAMGUEST}:{#VEEAMTARGET}])>={$VEEAM.CST_DLY_CHECK01} and 
-                    last(/0_CST_TPL-Veeam Custom Checks/backup.veeam.customchecks.enabled[{#VEEAMGUEST}:{#VEEAMTARGET}])=1
-            - uuid: c8f3351ff66344108b62bbffd79aa478
-              expression: |
-                last(/0_CST_TPL-Veeam Custom Checks/backup.veeam.customchecks.datediff[{#VEEAMGUEST}:{#VEEAMTARGET}])>={$VEEAM.CST_DLY_CHECK03} and 
-                last(/0_CST_TPL-Veeam Custom Checks/backup.veeam.customchecks.enabled[{#VEEAMGUEST}:{#VEEAMTARGET}])=1
-              name: '[VEEAM] [{#VEEAMGUEST}:{#VEEAMTARGET}] Job delayed'
-              priority: HIGH
-              dependencies:
-                - name: '[VEEAM] [{#VEEAMGUEST}:{#VEEAMTARGET}] Job delayed'
-                  expression: |
-                    last(/0_CST_TPL-Veeam Custom Checks/backup.veeam.customchecks.datediff[{#VEEAMGUEST}:{#VEEAMTARGET}])>={$VEEAM.CST_DLY_CHECK01} and 
-                    last(/0_CST_TPL-Veeam Custom Checks/backup.veeam.customchecks.enabled[{#VEEAMGUEST}:{#VEEAMTARGET}])=1
-                - name: '[VEEAM] [{#VEEAMGUEST}:{#VEEAMTARGET}] Job delayed'
-                  expression: |
-                    last(/0_CST_TPL-Veeam Custom Checks/backup.veeam.customchecks.datediff[{#VEEAMGUEST}:{#VEEAMTARGET}])>={$VEEAM.CST_DLY_CHECK02} and 
-                    last(/0_CST_TPL-Veeam Custom Checks/backup.veeam.customchecks.enabled[{#VEEAMGUEST}:{#VEEAMTARGET}])=1
             - uuid: ebdee306fc6b487c8939388088dc04c1
               expression: |
                 last(/0_CST_TPL-Veeam Custom Checks/backup.veeam.customchecks.datediff[{#VEEAMGUEST}:{#VEEAMTARGET}])>={$VEEAM.CST_DLY_CHECK04} and 
                 last(/0_CST_TPL-Veeam Custom Checks/backup.veeam.customchecks.enabled[{#VEEAMGUEST}:{#VEEAMTARGET}])=1
-              name: '[VEEAM] [{#VEEAMGUEST}:{#VEEAMTARGET}] Job delayed'
+              name: '[VEEAM] [{#VEEAMGUEST}:{#VEEAMTARGET}] Job delayed (Disaster)'
               priority: DISASTER
+            - uuid: c8f3351ff66344108b62bbffd79aa478
+              expression: |
+                last(/0_CST_TPL-Veeam Custom Checks/backup.veeam.customchecks.datediff[{#VEEAMGUEST}:{#VEEAMTARGET}])>={$VEEAM.CST_DLY_CHECK03} and 
+                last(/0_CST_TPL-Veeam Custom Checks/backup.veeam.customchecks.enabled[{#VEEAMGUEST}:{#VEEAMTARGET}])=1
+              name: '[VEEAM] [{#VEEAMGUEST}:{#VEEAMTARGET}] Job delayed (High)'
+              priority: HIGH
               dependencies:
-                - name: '[VEEAM] [{#VEEAMGUEST}:{#VEEAMTARGET}] Job delayed'
+                - name: '[VEEAM] [{#VEEAMGUEST}:{#VEEAMTARGET}] Job delayed (Disaster)'
                   expression: |
-                    last(/0_CST_TPL-Veeam Custom Checks/backup.veeam.customchecks.datediff[{#VEEAMGUEST}:{#VEEAMTARGET}])>={$VEEAM.CST_DLY_CHECK01} and 
+                    last(/0_CST_TPL-Veeam Custom Checks/backup.veeam.customchecks.datediff[{#VEEAMGUEST}:{#VEEAMTARGET}])>={$VEEAM.CST_DLY_CHECK04} and 
                     last(/0_CST_TPL-Veeam Custom Checks/backup.veeam.customchecks.enabled[{#VEEAMGUEST}:{#VEEAMTARGET}])=1
-                - name: '[VEEAM] [{#VEEAMGUEST}:{#VEEAMTARGET}] Job delayed'
+            - uuid: 4a04bbdb26c4477a923c60c673675465
+              expression: |
+                last(/0_CST_TPL-Veeam Custom Checks/backup.veeam.customchecks.datediff[{#VEEAMGUEST}:{#VEEAMTARGET}])>={$VEEAM.CST_DLY_CHECK01} and 
+                last(/0_CST_TPL-Veeam Custom Checks/backup.veeam.customchecks.enabled[{#VEEAMGUEST}:{#VEEAMTARGET}])=1
+              name: '[VEEAM] [{#VEEAMGUEST}:{#VEEAMTARGET}] Job delayed (Low)'
+              priority: WARNING
+              dependencies:
+                - name: '[VEEAM] [{#VEEAMGUEST}:{#VEEAMTARGET}] Job delayed (Mid)'
                   expression: |
                     last(/0_CST_TPL-Veeam Custom Checks/backup.veeam.customchecks.datediff[{#VEEAMGUEST}:{#VEEAMTARGET}])>={$VEEAM.CST_DLY_CHECK02} and 
                     last(/0_CST_TPL-Veeam Custom Checks/backup.veeam.customchecks.enabled[{#VEEAMGUEST}:{#VEEAMTARGET}])=1
-                - name: '[VEEAM] [{#VEEAMGUEST}:{#VEEAMTARGET}] Job delayed'
-                  expression: |
-                    last(/0_CST_TPL-Veeam Custom Checks/backup.veeam.customchecks.datediff[{#VEEAMGUEST}:{#VEEAMTARGET}])>={$VEEAM.CST_DLY_CHECK03} and 
-                    last(/0_CST_TPL-Veeam Custom Checks/backup.veeam.customchecks.enabled[{#VEEAMGUEST}:{#VEEAMTARGET}])=1
-            - uuid: 2a633c154a294fd6a30955616f37cf17
+            - uuid: 5be0e04e6e034d47bbaf944717138c65
               expression: |
-                avg(/0_CST_TPL-Veeam Custom Checks/backup.veeam.customchecks.status[{#VEEAMGUEST}:{#VEEAMTARGET}],{$VEEAM.CST_ERR_CKECK01})>=1 and
+                last(/0_CST_TPL-Veeam Custom Checks/backup.veeam.customchecks.datediff[{#VEEAMGUEST}:{#VEEAMTARGET}])>={$VEEAM.CST_DLY_CHECK02} and 
                 last(/0_CST_TPL-Veeam Custom Checks/backup.veeam.customchecks.enabled[{#VEEAMGUEST}:{#VEEAMTARGET}])=1
-              name: '[VEEAM] [{#VEEAMGUEST}:{#VEEAMTARGET}] Job errors found'
-              priority: WARNING
-            - uuid: 0791520d9dab4395b612203e5b8a4a54
-              expression: |
-                avg(/0_CST_TPL-Veeam Custom Checks/backup.veeam.customchecks.status[{#VEEAMGUEST}:{#VEEAMTARGET}],{$VEEAM.CST_ERR_CKECK02})>=1 and
-                last(/0_CST_TPL-Veeam Custom Checks/backup.veeam.customchecks.enabled[{#VEEAMGUEST}:{#VEEAMTARGET}])=1
-              name: '[VEEAM] [{#VEEAMGUEST}:{#VEEAMTARGET}] Job errors found'
+              name: '[VEEAM] [{#VEEAMGUEST}:{#VEEAMTARGET}] Job delayed (Mid)'
               priority: AVERAGE
               dependencies:
-                - name: '[VEEAM] [{#VEEAMGUEST}:{#VEEAMTARGET}] Job errors found'
+                - name: '[VEEAM] [{#VEEAMGUEST}:{#VEEAMTARGET}] Job delayed (High)'
                   expression: |
-                    avg(/0_CST_TPL-Veeam Custom Checks/backup.veeam.customchecks.status[{#VEEAMGUEST}:{#VEEAMTARGET}],{$VEEAM.CST_ERR_CKECK01})>=1 and
-                    last(/0_CST_TPL-Veeam Custom Checks/backup.veeam.customchecks.enabled[{#VEEAMGUEST}:{#VEEAMTARGET}])=1
-            - uuid: 5ec6a1259d9f4056bd5ad1ecc60b10bb
-              expression: |
-                avg(/0_CST_TPL-Veeam Custom Checks/backup.veeam.customchecks.status[{#VEEAMGUEST}:{#VEEAMTARGET}],{$VEEAM.CST_ERR_CKECK03})>=1 and
-                last(/0_CST_TPL-Veeam Custom Checks/backup.veeam.customchecks.enabled[{#VEEAMGUEST}:{#VEEAMTARGET}])=1
-              name: '[VEEAM] [{#VEEAMGUEST}:{#VEEAMTARGET}] Job errors found'
-              priority: HIGH
-              dependencies:
-                - name: '[VEEAM] [{#VEEAMGUEST}:{#VEEAMTARGET}] Job errors found'
-                  expression: |
-                    avg(/0_CST_TPL-Veeam Custom Checks/backup.veeam.customchecks.status[{#VEEAMGUEST}:{#VEEAMTARGET}],{$VEEAM.CST_ERR_CKECK01})>=1 and
-                    last(/0_CST_TPL-Veeam Custom Checks/backup.veeam.customchecks.enabled[{#VEEAMGUEST}:{#VEEAMTARGET}])=1
-                - name: '[VEEAM] [{#VEEAMGUEST}:{#VEEAMTARGET}] Job errors found'
-                  expression: |
-                    avg(/0_CST_TPL-Veeam Custom Checks/backup.veeam.customchecks.status[{#VEEAMGUEST}:{#VEEAMTARGET}],{$VEEAM.CST_ERR_CKECK02})>=1 and
+                    last(/0_CST_TPL-Veeam Custom Checks/backup.veeam.customchecks.datediff[{#VEEAMGUEST}:{#VEEAMTARGET}])>={$VEEAM.CST_DLY_CHECK03} and 
                     last(/0_CST_TPL-Veeam Custom Checks/backup.veeam.customchecks.enabled[{#VEEAMGUEST}:{#VEEAMTARGET}])=1
             - uuid: 02229bae8f84487e8583968dcbc1d461
               expression: |
                 avg(/0_CST_TPL-Veeam Custom Checks/backup.veeam.customchecks.status[{#VEEAMGUEST}:{#VEEAMTARGET}],{$VEEAM.CST_ERR_CKECK04})>=1 and
                 last(/0_CST_TPL-Veeam Custom Checks/backup.veeam.customchecks.enabled[{#VEEAMGUEST}:{#VEEAMTARGET}])=1
-              name: '[VEEAM] [{#VEEAMGUEST}:{#VEEAMTARGET}] Job errors found'
+              name: '[VEEAM] [{#VEEAMGUEST}:{#VEEAMTARGET}] Job errors found (Disaster)'
               priority: DISASTER
+            - uuid: 5ec6a1259d9f4056bd5ad1ecc60b10bb
+              expression: |
+                avg(/0_CST_TPL-Veeam Custom Checks/backup.veeam.customchecks.status[{#VEEAMGUEST}:{#VEEAMTARGET}],{$VEEAM.CST_ERR_CKECK03})>=1 and
+                last(/0_CST_TPL-Veeam Custom Checks/backup.veeam.customchecks.enabled[{#VEEAMGUEST}:{#VEEAMTARGET}])=1
+              name: '[VEEAM] [{#VEEAMGUEST}:{#VEEAMTARGET}] Job errors found (High)'
+              priority: HIGH
               dependencies:
-                - name: '[VEEAM] [{#VEEAMGUEST}:{#VEEAMTARGET}] Job errors found'
+                - name: '[VEEAM] [{#VEEAMGUEST}:{#VEEAMTARGET}] Job errors found (Disaster)'
                   expression: |
-                    avg(/0_CST_TPL-Veeam Custom Checks/backup.veeam.customchecks.status[{#VEEAMGUEST}:{#VEEAMTARGET}],{$VEEAM.CST_ERR_CKECK01})>=1 and
+                    avg(/0_CST_TPL-Veeam Custom Checks/backup.veeam.customchecks.status[{#VEEAMGUEST}:{#VEEAMTARGET}],{$VEEAM.CST_ERR_CKECK04})>=1 and
                     last(/0_CST_TPL-Veeam Custom Checks/backup.veeam.customchecks.enabled[{#VEEAMGUEST}:{#VEEAMTARGET}])=1
-                - name: '[VEEAM] [{#VEEAMGUEST}:{#VEEAMTARGET}] Job errors found'
+            - uuid: 2a633c154a294fd6a30955616f37cf17
+              expression: |
+                avg(/0_CST_TPL-Veeam Custom Checks/backup.veeam.customchecks.status[{#VEEAMGUEST}:{#VEEAMTARGET}],{$VEEAM.CST_ERR_CKECK01})>=1 and
+                last(/0_CST_TPL-Veeam Custom Checks/backup.veeam.customchecks.enabled[{#VEEAMGUEST}:{#VEEAMTARGET}])=1
+              name: '[VEEAM] [{#VEEAMGUEST}:{#VEEAMTARGET}] Job errors found (Low)'
+              priority: WARNING
+              dependencies:
+                - name: '[VEEAM] [{#VEEAMGUEST}:{#VEEAMTARGET}] Job errors found (Mid)'
                   expression: |
                     avg(/0_CST_TPL-Veeam Custom Checks/backup.veeam.customchecks.status[{#VEEAMGUEST}:{#VEEAMTARGET}],{$VEEAM.CST_ERR_CKECK02})>=1 and
                     last(/0_CST_TPL-Veeam Custom Checks/backup.veeam.customchecks.enabled[{#VEEAMGUEST}:{#VEEAMTARGET}])=1
-                - name: '[VEEAM] [{#VEEAMGUEST}:{#VEEAMTARGET}] Job errors found'
+            - uuid: 0791520d9dab4395b612203e5b8a4a54
+              expression: |
+                avg(/0_CST_TPL-Veeam Custom Checks/backup.veeam.customchecks.status[{#VEEAMGUEST}:{#VEEAMTARGET}],{$VEEAM.CST_ERR_CKECK02})>=1 and
+                last(/0_CST_TPL-Veeam Custom Checks/backup.veeam.customchecks.enabled[{#VEEAMGUEST}:{#VEEAMTARGET}])=1
+              name: '[VEEAM] [{#VEEAMGUEST}:{#VEEAMTARGET}] Job errors found (Mid)'
+              priority: AVERAGE
+              dependencies:
+                - name: '[VEEAM] [{#VEEAMGUEST}:{#VEEAMTARGET}] Job errors found (High)'
                   expression: |
                     avg(/0_CST_TPL-Veeam Custom Checks/backup.veeam.customchecks.status[{#VEEAMGUEST}:{#VEEAMTARGET}],{$VEEAM.CST_ERR_CKECK03})>=1 and
                     last(/0_CST_TPL-Veeam Custom Checks/backup.veeam.customchecks.enabled[{#VEEAMGUEST}:{#VEEAMTARGET}])=1
-            - uuid: db0968dac8df4bca8c7d9d9c07174d5a
-              expression: |
-                nodata(/0_CST_TPL-Veeam Custom Checks/backup.veeam.customchecks.status[{#VEEAMGUEST}:{#VEEAMTARGET}],{$VEEAM.CST_NODATA01})=1 and 
-                last(/0_CST_TPL-Veeam Custom Checks/backup.veeam.customchecks.enabled[{#VEEAMGUEST}:{#VEEAMTARGET}])=1
-              name: '[VEEAM] [{#VEEAMGUEST}:{#VEEAMTARGET}] Job Status not Updated'
-              priority: WARNING
-            - uuid: 6e03a2cf180e4d9495fb7fc14e196e0d
-              expression: |
-                nodata(/0_CST_TPL-Veeam Custom Checks/backup.veeam.customchecks.status[{#VEEAMGUEST}:{#VEEAMTARGET}],{$VEEAM.CST_NODATA02})=1 and 
-                last(/0_CST_TPL-Veeam Custom Checks/backup.veeam.customchecks.enabled[{#VEEAMGUEST}:{#VEEAMTARGET}])=1
-              name: '[VEEAM] [{#VEEAMGUEST}:{#VEEAMTARGET}] Job Status not Updated'
-              priority: AVERAGE
-              dependencies:
-                - name: '[VEEAM] [{#VEEAMGUEST}:{#VEEAMTARGET}] Job Status not Updated'
-                  expression: |
-                    nodata(/0_CST_TPL-Veeam Custom Checks/backup.veeam.customchecks.status[{#VEEAMGUEST}:{#VEEAMTARGET}],{$VEEAM.CST_NODATA01})=1 and 
-                    last(/0_CST_TPL-Veeam Custom Checks/backup.veeam.customchecks.enabled[{#VEEAMGUEST}:{#VEEAMTARGET}])=1
+            - uuid: 30d72e1a9f624f8894f04eb1a7d811b8
+              expression: 'nodata(/0_CST_TPL-Veeam Custom Checks/backup.veeam.customchecks.status[{#VEEAMGUEST}:{#VEEAMTARGET}],{$VEEAM.CST_NODATA04})=1 and last(/0_CST_TPL-Veeam Custom Checks/backup.veeam.customchecks.enabled[{#VEEAMGUEST}:{#VEEAMTARGET}])=1'
+              name: '[VEEAM] [{#VEEAMGUEST}:{#VEEAMTARGET}] Job Status not Updated (Disaster)'
+              priority: DISASTER
             - uuid: 4f8039948736446a9b448aaa40a2b64c
               expression: |
                 nodata(/0_CST_TPL-Veeam Custom Checks/backup.veeam.customchecks.status[{#VEEAMGUEST}:{#VEEAMTARGET}],{$VEEAM.CST_NODATA03})=1 and 
                 last(/0_CST_TPL-Veeam Custom Checks/backup.veeam.customchecks.enabled[{#VEEAMGUEST}:{#VEEAMTARGET}])=1
-              name: '[VEEAM] [{#VEEAMGUEST}:{#VEEAMTARGET}] Job Status not Updated'
+              name: '[VEEAM] [{#VEEAMGUEST}:{#VEEAMTARGET}] Job Status not Updated (High)'
               priority: HIGH
               dependencies:
-                - name: '[VEEAM] [{#VEEAMGUEST}:{#VEEAMTARGET}] Job Status not Updated'
-                  expression: |
-                    nodata(/0_CST_TPL-Veeam Custom Checks/backup.veeam.customchecks.status[{#VEEAMGUEST}:{#VEEAMTARGET}],{$VEEAM.CST_NODATA01})=1 and 
-                    last(/0_CST_TPL-Veeam Custom Checks/backup.veeam.customchecks.enabled[{#VEEAMGUEST}:{#VEEAMTARGET}])=1
-                - name: '[VEEAM] [{#VEEAMGUEST}:{#VEEAMTARGET}] Job Status not Updated'
-                  expression: |
-                    nodata(/0_CST_TPL-Veeam Custom Checks/backup.veeam.customchecks.status[{#VEEAMGUEST}:{#VEEAMTARGET}],{$VEEAM.CST_NODATA02})=1 and 
-                    last(/0_CST_TPL-Veeam Custom Checks/backup.veeam.customchecks.enabled[{#VEEAMGUEST}:{#VEEAMTARGET}])=1
-            - uuid: 30d72e1a9f624f8894f04eb1a7d811b8
-              expression: 'nodata(/0_CST_TPL-Veeam Custom Checks/backup.veeam.customchecks.status[{#VEEAMGUEST}:{#VEEAMTARGET}],{$VEEAM.CST_NODATA04})=1 and last(/0_CST_TPL-Veeam Custom Checks/backup.veeam.customchecks.enabled[{#VEEAMGUEST}:{#VEEAMTARGET}])=1'
-              name: '[VEEAM] [{#VEEAMGUEST}:{#VEEAMTARGET}] Job Status not Updated'
-              priority: DISASTER
+                - name: '[VEEAM] [{#VEEAMGUEST}:{#VEEAMTARGET}] Job Status not Updated (Disaster)'
+                  expression: 'nodata(/0_CST_TPL-Veeam Custom Checks/backup.veeam.customchecks.status[{#VEEAMGUEST}:{#VEEAMTARGET}],{$VEEAM.CST_NODATA04})=1 and last(/0_CST_TPL-Veeam Custom Checks/backup.veeam.customchecks.enabled[{#VEEAMGUEST}:{#VEEAMTARGET}])=1'
+            - uuid: db0968dac8df4bca8c7d9d9c07174d5a
+              expression: |
+                nodata(/0_CST_TPL-Veeam Custom Checks/backup.veeam.customchecks.status[{#VEEAMGUEST}:{#VEEAMTARGET}],{$VEEAM.CST_NODATA01})=1 and 
+                last(/0_CST_TPL-Veeam Custom Checks/backup.veeam.customchecks.enabled[{#VEEAMGUEST}:{#VEEAMTARGET}])=1
+              name: '[VEEAM] [{#VEEAMGUEST}:{#VEEAMTARGET}] Job Status not Updated (Low)'
+              priority: WARNING
               dependencies:
-                - name: '[VEEAM] [{#VEEAMGUEST}:{#VEEAMTARGET}] Job Status not Updated'
-                  expression: |
-                    nodata(/0_CST_TPL-Veeam Custom Checks/backup.veeam.customchecks.status[{#VEEAMGUEST}:{#VEEAMTARGET}],{$VEEAM.CST_NODATA01})=1 and 
-                    last(/0_CST_TPL-Veeam Custom Checks/backup.veeam.customchecks.enabled[{#VEEAMGUEST}:{#VEEAMTARGET}])=1
-                - name: '[VEEAM] [{#VEEAMGUEST}:{#VEEAMTARGET}] Job Status not Updated'
+                - name: '[VEEAM] [{#VEEAMGUEST}:{#VEEAMTARGET}] Job Status not Updated (Mid)'
                   expression: |
                     nodata(/0_CST_TPL-Veeam Custom Checks/backup.veeam.customchecks.status[{#VEEAMGUEST}:{#VEEAMTARGET}],{$VEEAM.CST_NODATA02})=1 and 
                     last(/0_CST_TPL-Veeam Custom Checks/backup.veeam.customchecks.enabled[{#VEEAMGUEST}:{#VEEAMTARGET}])=1
-                - name: '[VEEAM] [{#VEEAMGUEST}:{#VEEAMTARGET}] Job Status not Updated'
+            - uuid: 6e03a2cf180e4d9495fb7fc14e196e0d
+              expression: |
+                nodata(/0_CST_TPL-Veeam Custom Checks/backup.veeam.customchecks.status[{#VEEAMGUEST}:{#VEEAMTARGET}],{$VEEAM.CST_NODATA02})=1 and 
+                last(/0_CST_TPL-Veeam Custom Checks/backup.veeam.customchecks.enabled[{#VEEAMGUEST}:{#VEEAMTARGET}])=1
+              name: '[VEEAM] [{#VEEAMGUEST}:{#VEEAMTARGET}] Job Status not Updated (Mid)'
+              priority: AVERAGE
+              dependencies:
+                - name: '[VEEAM] [{#VEEAMGUEST}:{#VEEAMTARGET}] Job Status not Updated (High)'
                   expression: |
                     nodata(/0_CST_TPL-Veeam Custom Checks/backup.veeam.customchecks.status[{#VEEAMGUEST}:{#VEEAMTARGET}],{$VEEAM.CST_NODATA03})=1 and 
                     last(/0_CST_TPL-Veeam Custom Checks/backup.veeam.customchecks.enabled[{#VEEAMGUEST}:{#VEEAMTARGET}])=1
