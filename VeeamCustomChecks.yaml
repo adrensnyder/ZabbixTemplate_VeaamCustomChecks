@@ -1,3 +1,4 @@
+# Copyright (C) 2025 AdrenSnyder <adrensnyder@outlook.it>
 zabbix_export:
   version: '6.0'
   date: '2024-08-23T07:12:04Z'
