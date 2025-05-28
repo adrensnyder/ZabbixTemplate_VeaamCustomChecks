@@ -26,5 +26,6 @@ The template includes several configurable MACROS with descriptions of their usa
   - It will create a configuration file on the first execution with the configurable path of `zabbix_sender.exe` and Zabbix configuration.
  
 # Copyright
-This project isn't affiliated with Veeam. It not modify in any manner the program or the license needed to work.
-This template and executable only retrieve detailed informations from the internal database and send it to zabbix
+This project isn't affiliated with Veeam. It will not modify Veeam software in any manner nor the license that are needed to work.
+This template and executable only retrieve detailed informations from the internal database and send it to zabbix.
+
