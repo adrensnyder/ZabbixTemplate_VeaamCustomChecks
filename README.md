@@ -1,7 +1,7 @@
 # VeeamCustomChecks_ZabbixTemplate
 
-I'm not satisfied about the [official template of Veeam](https://www.zabbix.com/integrations/veeam) for Zabbix because the API it's incomplete not give all the information i need to monitor correctly the backups
-Because of those I've created mine that connects directly to MS SQL or POSTGRES.
+I'm not satisfied with the [official template of Veeam](https://www.zabbix.com/integrations/veeam) for Zabbix, as the API does not provide all the information needed to properly monitor backups in a efficiently way.
+For this reason, I created my own template, which connects directly to MS SQL or PostgreSQL.
 
 ## Database Versions
 - **v11** uses mostly SQL Server.
@@ -48,7 +48,11 @@ The original template does not monitor all types (IDs) of backup jobs and only r
 - Add monitor of Internal database backup 
  
 # Copyright
-This project isn't affiliated with Veeam. It will not modify Veeam software in any manner nor the license that are needed to work.
-This template and executable only retrieve detailed informations from the internal database and send it to zabbix.
-Hope to see more informations in the API in the future so i can create an API only template
+This project is an unofficial Zabbix template for monitoring Veeam backup jobs. It is not affiliated with, endorsed, or supported by Veeam Software in any way.  
+“Veeam” and related trademarks are the property of Veeam Software.  
+
+This template and the included executable do not modify Veeam software in any way, nor do they interfere with its licensing.  
+All data is retrieved in read-only mode from the internal database and sent to Zabbix for monitoring purposes.  
+
+The goal is to provide more detailed monitoring until Veeam expands its public API capabilities, at which point an API-only solution may be developed.  
 
