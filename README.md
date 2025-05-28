@@ -4,7 +4,7 @@ I'm not satisfied about the official template of Veeam for Zabbix because the AP
 Because of those I've created mine that connects directly to MS SQL or POSTGRES.
 
 ## Database Versions
-- **v11** uses SQL Server.
+- **v11** uses mostly SQL Server.
 - **v12** uses PostgreSQL and requires psqlodbc to be installed in both 32-bit and 64-bit versions from [here](https://www.postgresql.org/ftp/odbc/releases/).
   - Default port: 5432
   - Default user: `postgres` (without password)
