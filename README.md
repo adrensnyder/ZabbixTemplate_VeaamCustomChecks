@@ -24,3 +24,7 @@ The template includes several configurable MACROS with descriptions of their usa
 - Change the path of the executable in the item `[VEEAM] Collect Data` if needed.
 - The variable `$ZabbixBasePath` is hardcoded to the path `c:\zabbix_agent`.
   - It will create a configuration file on the first execution with the configurable path of `zabbix_sender.exe` and Zabbix configuration.
+ 
+# Copyright
+This project isn't affiliated with Veeam. It not modify in any manner the program or the license needed to work.
+This template and executable only retrieve detailed informations from the internal database and send it to zabbix
