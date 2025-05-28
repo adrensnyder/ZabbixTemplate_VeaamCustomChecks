@@ -1,6 +1,7 @@
 # VeeamCustomChecks_ZabbixTemplate
 
-I'm not satisfied about the official template of Veeam for Zabbix, so I've created mine that connects directly to MS SQL or POSTGRES.
+I'm not satisfied about the official template of Veeam for Zabbix because the API it's incomplete not give all the information i need to monitor correctly the backups
+Because of those I've created mine that connects directly to MS SQL or POSTGRES.
 
 ## Database Versions
 - **v11** uses SQL Server.
