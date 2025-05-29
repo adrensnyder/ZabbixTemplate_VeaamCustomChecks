@@ -1,6 +1,6 @@
 # VeeamCustomChecks_ZabbixTemplate
 
-I'm not satisfied with the [official template of Veeam](https://www.zabbix.com/integrations/veeam) for Zabbix, as the API does not provide all the information needed to properly monitor backups in a efficiently way.
+I'm not satisfied with the [official template of Veeam Backup and Replication](https://www.zabbix.com/integrations/veeam) for Zabbix, as the API does not provide all the information needed to properly monitor backups in a efficiently way.
 For this reason, I created my own template, which connects directly to MS SQL or PostgreSQL.
 
 ## Database Versions
