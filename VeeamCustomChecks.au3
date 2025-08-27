@@ -28,7 +28,7 @@
 #AutoIt3Wrapper_Res_Fileversion=1.0
 #AutoIt3Wrapper_Res_ProductVersion=
 #AutoIt3Wrapper_Res_Language=
-#AutoIt3Wrapper_Res_LegalCopyright=Created by AdrenSnyder
+#AutoIt3Wrapper_Res_LegalCopyright=Created by Andrea Cariddi
 
 #include <File.au3>
 #include <Array.au3>
@@ -64,10 +64,7 @@ Global $ZabbixBasePath = "c:\zabbix_agent"
 
 Global $DataErrors = ""
 
-Global $BackupCount = 0
-Global $ReplicaCount = 0
-Global $AgentCount = 0
-Global $GuestCount = 0
+Global $JobsCount = 0
 
 Global $Array_Disc = ""
 Global $Array_Disc_Tmp = ""
@@ -82,44 +79,54 @@ Global $sServer = ""
 Global $sPort = ""
 Global $sUID = ""
 Global $sPWD = ""
+Global $JobTypes = ""
 
-Global $AgentEnabled = 0
 #EndRegion Globals
 
 #Region Check Parameters
 For $i = 1 To $CmdLine[0]
     Switch $CmdLine[$i]
-		Case StringLeft($CmdLine[$i], 8 ) = "--debug="
-            $Debug = StringTrimLeft($CmdLine[$i], 8)
-		Case StringLeft($CmdLine[$i], 9) = "--driver="
-            $sDriver = StringTrimLeft($CmdLine[$i], 9)
-        Case StringLeft($CmdLine[$i], 11) = "--database="
-            $sDatabase = StringTrimLeft($CmdLine[$i], 11)
-		Case StringLeft($CmdLine[$i], 9) = "--server="
-            $sServer = StringTrimLeft($CmdLine[$i], 9)
-		Case StringLeft($CmdLine[$i], 7) = "--port="
-            $sPort = StringTrimLeft($CmdLine[$i], 7)
-		Case StringLeft($CmdLine[$i], 7) = "--user="
-            $sUID = StringTrimLeft($CmdLine[$i], 7)
-		Case StringLeft($CmdLine[$i], 11) = "--password="
-            $sPWD = StringTrimLeft($CmdLine[$i], 11)
-		Case StringLeft($CmdLine[$i], 8) = "--agent="
-            $AgentEnabled = StringTrimLeft($CmdLine[$i], 8)
+		Case StringInStr($CmdLine[$i],"--debug=") <> 0
+			$Debug = GetParameter($CmdLine[$i])
+		Case StringInStr($CmdLine[$i],"--driver=") <> 0
+			$sDriver = GetParameter($CmdLine[$i])
+        Case StringInStr($CmdLine[$i],"--database=") <> 0
+			$sDatabase = GetParameter($CmdLine[$i])
+		Case StringInStr($CmdLine[$i],"--server=") <> 0
+			$sServer = GetParameter($CmdLine[$i])
+		Case StringInStr($CmdLine[$i],"--port=") <> 0
+			$sPort = GetParameter($CmdLine[$i])
+		Case StringInStr($CmdLine[$i],"--user=") <> 0
+			$sUID = GetParameter($CmdLine[$i])
+		Case StringInStr($CmdLine[$i],"--password=") <> 0
+			$sPWD = GetParameter($CmdLine[$i])
+		Case StringInStr($CmdLine[$i],"--jobtypes=") <> 0
+			$JobTypes = GetParameter($CmdLine[$i])
 	EndSwitch
 Next
+
+Func GetParameter($string)
+    Local $result = StringRegExp($string, "=(.*)", 1)
+
+    If @error Then
+        Return ""
+    Else
+        Return $result[0]
+    EndIf
+EndFunc
 
 if ($sDriver = "" or $sDatabase = "" or $sServer = "") then
 	ConsoleWrite(@CRLF & "Error: Missing parameters")
 
 	$msg_usage = "Usage:" & @CRLF & _
-	"--debug=[0/1] [Default 0]: enable or disable the debug" & @CRLF & _
+	"--debug=[0/1/2] [Default 0]: (1) Display some infos, (2) Display SQL queries" & @CRLF & _
 	"--driver=[string]: ODBC Driver name. ['SQL Server' for MS SQL. 'PostgreSQL ANSI' or 'PostgreSQL Unicode' for PostgreSQL'" & @CRLF & _
 	"--server=[string]: Instance and server [Ex. MS SQL: localhost\VEEAMSQL PostgreSQL: localhost]" & @CRLF & _
 	"--port=[string]: Port if required. For PostgreSQL is 5432. Not needed usually for MS SQL" & @CRLF & _
 	"--database=[string]: Database Name" & @CRLF & _
 	"--user=[string]: Username if needed. Per PostgreSQL the default is 'postgres'" & @CRLF & _
 	"--password[string]: Password if needed" & @CRLF & _
-	"--agents[string]: Enable agents monitoring (Probably pc backup)"
+	"--jobtypes=[string]: Types of backup monitored separated by ',' (0:Vm 1:Replica 4000:Agent Workstation 12000:Agent Server)"
 
 	ConsoleWrite(@CRLF & @CRLF & $msg_usage)
 
@@ -240,123 +247,280 @@ _VeeamDataSearch()
 
 Func _VeeamDataSearch()
 
+	Local $result, $Result_Discovery, $Result_Data
+
 	$result = _SQLConnection()
 	if $result <> 0 then
 		_logmsg($LogFile,"Connection Error",true,true)
 		exit
 	EndIf
 
-	; SQL MS SQL - RepositoryId
-	$sql_repositoryid = "WITH DistinctRepo AS ( " & _
-		"SELECT " & _
-		"		object_name,status,creation_time,end_time,CAST(reason AS NVARCHAR(255)) AS reason, " & _
-		"		CAST(work_details AS NVARCHAR(MAX)) AS work_details_text, " & _
-		"		x.value('(RepositoryId)[1]', 'NVARCHAR(MAX)') AS repo_id, " & _
-		"		ROW_NUMBER() OVER (PARTITION BY object_name, x.value('(RepositoryId)[1]', 'NVARCHAR(MAX)') ORDER BY end_time DESC) AS rn " & _
-		"	FROM dbo.[Backup.Model.BackupTaskSessions] " & _
-		"	CROSS APPLY work_details.nodes('/*') AS T(x) " & _
-		"	WHERE x.exist('(RepositoryId)[1]') = 1 " & _
-		") " & _
-		"SELECT " & _
-		"	object_name,status,creation_time,end_time,reason,work_details_text " & _
-		"FROM DistinctRepo " & _
-		"WHERE rn = 1;"
+	; SQL MS SQL
 
-	; SQL MS SQL - hostDnsName Replica
-	$sql_hostdnsname = "WITH DistinctHost AS ( " & _
-		"SELECT " & _
-		"	 object_name,status,creation_time,end_time,CAST(reason AS NVARCHAR(255)) AS reason, " & _
-		"    CAST(work_details AS NVARCHAR(MAX)) AS work_details_text, " & _
-		"    x.value('(@hostDnsName)[1]', 'NVARCHAR(MAX)') AS host_dns_name, " & _
-		"    ROW_NUMBER() OVER (PARTITION BY object_name, x.value('(@hostDnsName)[1]', 'NVARCHAR(MAX)') ORDER BY end_time DESC) AS rn " & _
-		"FROM dbo.[Backup.Model.BackupTaskSessions] " & _
-		"CROSS APPLY work_details.nodes('//HvDataStorage') AS T(x) " & _
-		"WHERE x.exist('(@hostDnsName)') = 1 " & _
-		") " & _
-		"SELECT " & _
-		"	object_name,status,creation_time,end_time,reason,work_details_text " & _
-		"FROM DistinctHost " & _
-		"WHERE rn = 1;"
+	Local $sql = ""
+	If StringInStr($sDriver,"SQL Server") <> 0 then
+		$sqldiscovery = "WITH HostsConcatenated AS (" & @CRLF & _
+				"    SELECT" & @CRLF & _
+				"        ij.job_id," & @CRLF & _
+				"        STUFF((" & @CRLF & _
+				"            SELECT '|' + o.object_name + ',' + COALESCE(o.viobject_type, 'NoType')" & @CRLF & _
+				"            FROM dbo.[objectsinjobsview] ij2" & @CRLF & _
+				"            JOIN dbo.[objectsview] o ON o.id = ij2.object_id" & @CRLF & _
+				"            WHERE ij2.job_id = ij.job_id" & @CRLF & _
+				"            FOR XML PATH(''), TYPE).value('.', 'NVARCHAR(MAX)'), 1, 1, '') AS hosts" & @CRLF & _
+				"    FROM dbo.[objectsinjobsview] ij" & @CRLF & _
+				"    GROUP BY ij.job_id" & @CRLF & _
+				")," & @CRLF & _
+				"FirstSelection AS (" & @CRLF & _
+				"    SELECT" & @CRLF & _
+				"        CAST(j.id AS VARCHAR(255)) AS job_id," & @CRLF & _
+				"        CAST(j.name AS VARCHAR(255)) AS job_name," & @CRLF & _
+				"        CAST(j.repository_id AS VARCHAR(255)) AS repository_id," & @CRLF & _
+				"        CAST(r.name AS VARCHAR(255)) AS repository_name," & @CRLF & _
+				"        CAST(j.type AS VARCHAR(255)) AS job_type," & @CRLF & _
+				"        CAST(j.is_deleted AS VARCHAR(255)) AS is_job_deleted," & @CRLF & _
+				"        CAST(j.latest_result AS VARCHAR(255)) AS latest_job_result," & @CRLF & _
+				"        CAST(j.schedule_enabled AS VARCHAR(255)) AS is_schedule_enabled," & @CRLF & _
+				"        CAST(j.parent_job_id AS VARCHAR(255)) AS parent_job_id," & @CRLF & _
+				"        CAST(j.parent_schedule_id AS VARCHAR(255)) AS parent_schedule_id," & @CRLF & _
+				"        CAST(hc.hosts AS VARCHAR(255)) AS backup_hosts" & @CRLF & _
+				"    FROM" & @CRLF & _
+				"        dbo.[jobsview] j" & @CRLF & _
+				"    LEFT JOIN" & @CRLF & _
+				"        HostsConcatenated hc ON j.id = hc.job_id" & @CRLF & _
+				"    LEFT JOIN" & @CRLF & _
+				"        dbo.[backuprepositories] r ON j.repository_id = r.id" & @CRLF & _
+				")" & @CRLF & _
+				"SELECT *" & @CRLF & _
+				"FROM FirstSelection" & @CRLF & _
+				"WHERE " & @CRLF & _
+				"    job_id NOT IN (SELECT DISTINCT parent_job_id FROM FirstSelection WHERE parent_job_id IS NOT NULL);"
 
-	$sql_agents = "WITH RankedTasks AS ( " & _
-		"	SELECT " & _
-		"		object_name,status,creation_time,end_time,CAST(reason AS VARCHAR(255)) AS reason,work_details, " & _
-		"		ROW_NUMBER() OVER (PARTITION BY object_name ORDER BY end_time DESC) AS rn " & _
-		"	FROM dbo.[Backup.Model.BackupTaskSessions] " & _
-		"	WHERE " & _
-		"		work_details.exist('//RepositoryId') = 0 " & _
-		"		AND work_details.exist('//*[@hostDnsName]') = 0 " & _
-		"		AND work_details.exist('//Item[@OibId]') = 1 " & _
-		") " & _
-		"SELECT " & _
-		"	object_name,status,creation_time,end_time,reason,work_details " & _
-		"FROM RankedTasks " & _
-		"WHERE rn = 1;"
+		$sql = "WITH HostsConcatenated AS (" & @CRLF & _
+				"    SELECT " & @CRLF & _
+				"        ij.job_id, " & @CRLF & _
+				"        STUFF((" & @CRLF & _
+				"            SELECT '|' + o.object_name + ',' + COALESCE(o.viobject_type, 'NoType') " & @CRLF & _
+				"            FROM dbo.[objectsinjobsview] ij " & @CRLF & _
+				"            JOIN dbo.[objectsview] o ON o.id = ij.object_id " & @CRLF & _
+				"            WHERE ij.job_id = ij.job_id " & @CRLF & _
+				"            FOR XML PATH('')" & @CRLF & _
+				"        ), 1, 1, '') AS hosts " & @CRLF & _
+				"    FROM dbo.[objectsinjobsview] ij " & @CRLF & _
+				"    GROUP BY ij.job_id " & @CRLF & _
+				"), " & @CRLF & _
+				"LatestBackupState AS (" & @CRLF & _
+				"    SELECT " & @CRLF & _
+				"        bs.job_id, " & @CRLF & _
+				"        bs.job_type, " & @CRLF & _
+				"        bs.state, " & @CRLF & _
+				"        bs.result, " & @CRLF & _
+				"        bs.reason, " & @CRLF & _
+				"        bs.creation_time, " & @CRLF & _
+				"        bs.end_time, " & @CRLF & _
+				"        ROW_NUMBER() OVER (PARTITION BY bs.job_id ORDER BY bs.creation_time DESC) AS rn " & @CRLF & _
+				"    FROM dbo.[backup.model.jobsessions] bs " & @CRLF & _
+				"), " & @CRLF & _
+				"LatestBackupTaskSession AS (" & @CRLF & _
+				"    SELECT " & @CRLF & _
+				"        bts.session_id, " & @CRLF & _
+				"        bts.status, " & @CRLF & _
+				"        bts.reason, " & @CRLF & _
+				"        bts.creation_time, " & @CRLF & _
+				"        js.job_id, " & @CRLF & _
+				"        ROW_NUMBER() OVER (PARTITION BY js.job_id ORDER BY bts.creation_time DESC) AS rn " & @CRLF & _
+				"    FROM dbo.[backup.model.backuptasksessions] bts " & @CRLF & _
+				"    JOIN dbo.[backup.model.jobsessions] js ON bts.session_id = js.id " & @CRLF & _
+				") " & @CRLF & _
+				"SELECT " & @CRLF & _
+				"	CAST(j.id AS VARCHAR(255)) AS job_id, " & @CRLF  & _
+				"	CAST(j.name AS VARCHAR(255)) AS job_name, " & @CRLF  & _
+				"	CAST(j.repository_id AS VARCHAR(255)) AS repository_id, " & @CRLF  & _
+				"	CAST(r.name AS VARCHAR(255)) AS repository_name, " & @CRLF  & _
+				"	CAST(j.type AS VARCHAR(255)) AS job_type, " & @CRLF  & _
+				"	CAST(j.is_deleted AS VARCHAR(255)) AS is_job_deleted, " & @CRLF  & _
+				"	CAST(j.latest_result AS VARCHAR(255)) AS latest_job_result, " & @CRLF  & _
+				"	CAST(j.schedule_enabled AS VARCHAR(255)) AS is_schedule_enabled, " & @CRLF  & _
+				"	CAST(j.parent_job_id AS VARCHAR(255)) AS parent_job_id, " & @CRLF  & _
+				"	CAST(j.parent_schedule_id AS VARCHAR(255)) AS parent_schedule_id, " & @CRLF  & _
+				"	CAST(hc.hosts AS VARCHAR(255)) AS backup_hosts, " & @CRLF  & _
+				"	CAST(lbs.job_type AS VARCHAR(255)) AS backup_job_type, " & @CRLF  & _
+				"	CAST(lbs.state AS VARCHAR(255)) AS backup_state, " & @CRLF  & _
+				"	CAST(lbs.result AS VARCHAR(255)) AS backup_result, " & @CRLF  & _
+				"	CAST(lbs.reason AS VARCHAR(255)) AS backup_reason, " & @CRLF  & _
+				"	CAST(lbs.creation_time AS VARCHAR(255)) AS backup_creation_time, " & @CRLF  & _
+				"	CAST(lbs.end_time AS VARCHAR(255)) AS backup_end_time, " & @CRLF  & _
+				"	CAST(bts.status AS VARCHAR(255)) AS backup_task_status, " & @CRLF  & _
+				"	CAST(bts.reason AS VARCHAR(255)) AS backup_task_reason, " & @CRLF  & _
+				"	CAST(bts.session_id AS VARCHAR(255)) AS backup_task_session_id, " & @CRLF  & _
+				"	CAST(j.schedule.value('(//OptionsScheduleAfterJob/IsEnabled/text())[1]', 'VARCHAR(MAX)') AS VARCHAR(255)) AS job_schedule_afterjob_enabled, " & @CRLF  & _
+				"	CAST(j.schedule.value('(//OptionsDaily/Enabled/text())[1]', 'VARCHAR(MAX)') AS VARCHAR(255)) AS job_schedule_daily_enabled, " & @CRLF  & _
+				"	CAST(j.schedule.value('(//OptionsDaily/Kind/text())[1]', 'VARCHAR(MAX)') AS VARCHAR(255)) AS job_schedule_daily_kind, " & @CRLF  & _
+				"	CAST(STUFF(( " & @CRLF  & _
+				"		SELECT ', ' + x.EMonth.value('.', 'VARCHAR(MAX)') " & @CRLF  & _
+				"		FROM j.schedule.nodes('(//OptionsDaily/Days/DayOfWeek)') AS x(EMonth) " & @CRLF  & _
+				"		FOR XML PATH('') " & @CRLF  & _
+				"	), 1, 2, '') AS VARCHAR(255)) AS job_schedule_daily_days, " & @CRLF  & _
+				"	CAST(j.schedule.value('(//OptionsPeriodically/Enabled/text())[1]', 'VARCHAR(MAX)') AS VARCHAR(255)) AS job_schedule_periodically_enabled, " & @CRLF  & _
+				"	CAST(j.schedule.value('(//OptionsMonthly/Enabled/text())[1]', 'VARCHAR(MAX)') AS VARCHAR(255)) AS job_schedule_monthly_enabled, " & @CRLF  & _
+				"	CAST(STUFF(( " & @CRLF  & _
+				"		SELECT ', ' + x.EMonth.value('.', 'VARCHAR(MAX)') " & @CRLF  & _
+				"		FROM j.schedule.nodes('(//OptionsMonthly/Months/EMonth)') AS x(EMonth) " & @CRLF  & _
+				"		FOR XML PATH('') " & @CRLF  & _
+				"	), 1, 2, '') AS VARCHAR(255)) AS job_schedule_monthly_months " & @CRLF  & _
+				"FROM " & @CRLF & _
+				"    dbo.[jobsview] j " & @CRLF & _
+				"LEFT JOIN " & @CRLF & _
+				"    HostsConcatenated hc ON j.id = hc.job_id " & @CRLF & _
+				"LEFT JOIN " & @CRLF & _
+				"    dbo.[backuprepositories] r ON j.repository_id = r.id " & @CRLF & _
+				"LEFT JOIN " & @CRLF & _
+				"    LatestBackupState lbs ON j.id = lbs.job_id AND lbs.rn = 1 " & @CRLF & _
+				"LEFT JOIN " & @CRLF & _
+				"    LatestBackupTaskSession bts ON j.id = bts.job_id AND bts.rn = 1 " & @CRLF & _
+				"WHERE " & @CRLF & _
+				"    bts.session_id IS NOT NULL;"
+	Endif
 
 	; SQL PostgreSQL
-	If StringInStr($sDriver,"PostgreSQL") then
-		; RepositoryId
-		$sql_repositoryid = "WITH DistinctRepo AS (SELECT " & _
-			"	object_name,status,creation_time,end_time,CAST(reason AS VARCHAR(255)) AS reason, " & _
-			"	xmlserialize(content work_details as text) AS work_details_text, " & _
-			"	xmlserialize(content (xpath('//RepositoryId/text()', work_details))[1] as text) AS repo_id, " & _
-			"	ROW_NUMBER() OVER (PARTITION BY object_name, xmlserialize(content (xpath('//RepositoryId/text()', work_details))[1] as text) ORDER BY end_time DESC) AS rn " & _
-			"FROM public." & chr(34) & "backup.model.backuptasksessions" & chr(34) & " " & _
-			"WHERE array_length(xpath('//RepositoryId/text()', work_details), 1) > 0 " & _
-			") " & _
-			"SELECT " & _
-			"	object_name,status,creation_time,end_time,reason,work_details_text " & _
-			"FROM DistinctRepo " & _
-			"WHERE rn = 1;"
+	If $sDriver = "PostgreSQL ANSI" then
+		$sqldiscovery = "WITH HostsConcatenated AS (" & @CRLF & _
+						"    SELECT" & @CRLF & _
+						"        ij.job_id," & @CRLF & _
+						"        STRING_AGG(o.object_name || ',' || COALESCE(o.viobject_type, 'NoType'), '|') AS hosts" & @CRLF & _
+						"    FROM public." & chr(34) & "objectsinjobsview" & chr(34) & " ij " & @CRLF  & _
+						"    JOIN public." & chr(34) & "objectsview" & chr(34) & " o ON o.id = ij.object_id " & @CRLF  & _
+						"    GROUP BY ij.job_id" & @CRLF & _
+						")," & @CRLF & _
+						"FirstSelection AS (" & @CRLF & _
+						"    SELECT" & @CRLF & _
+						"        j.id::TEXT AS job_id," & @CRLF & _
+						"        j.name::TEXT AS job_name," & @CRLF & _
+						"        j.repository_id::TEXT AS repository_id," & @CRLF & _
+						"        r.name::TEXT AS repository_name," & @CRLF & _
+						"        j.type::TEXT AS job_type," & @CRLF & _
+						"        j.is_deleted::TEXT AS is_job_deleted," & @CRLF & _
+						"        j.latest_result::TEXT AS latest_job_result," & @CRLF & _
+						"        j.schedule_enabled::TEXT AS is_schedule_enabled," & @CRLF & _
+						"        j.parent_job_id::TEXT AS parent_job_id," & @CRLF & _
+						"        j.parent_schedule_id::TEXT AS parent_schedule_id," & @CRLF & _
+						"        hc.hosts::TEXT AS backup_hosts" & @CRLF & _
+						"    FROM public." & chr(34) & "jobsview" & chr(34) & " j " & @CRLF  & _
+						"    LEFT JOIN HostsConcatenated hc ON j.id = hc.job_id" & @CRLF & _
+						"    LEFT JOIN public." & chr(34) & "backuprepositories" & chr(34) & " r ON j.repository_id = r.id " & @CRLF  & _
+						")" & @CRLF & _
+						"SELECT *" & @CRLF & _
+						"FROM FirstSelection" & @CRLF & _
+						"WHERE " & @CRLF & _
+						"    job_id NOT IN (SELECT DISTINCT parent_job_id FROM FirstSelection WHERE parent_job_id IS NOT NULL);"
 
-		; hostDnsName Replica
-		$sql_hostdnsname = "WITH DistinctHost AS ( " & _
-			"	SELECT " & _
-			"		object_name,status,creation_time,end_time,CAST(reason AS VARCHAR(255)) AS reason, " & _
-			"		xmlserialize(content work_details as text) AS work_details_text, " & _
-			"		xmlserialize(content (xpath('//HvDataStorage/@hostDnsName', work_details))[1] as text) AS host_dns_name, " & _
-			"		ROW_NUMBER() OVER (PARTITION BY object_name, xmlserialize(content (xpath('//HvDataStorage/@hostDnsName', work_details))[1] as text) ORDER BY end_time DESC) AS rn " & _
-			"	FROM public." & chr(34) & "backup.model.backuptasksessions" & chr(34) & " " & _
-			"	WHERE array_length(xpath('//HvDataStorage/@hostDnsName', work_details), 1) > 0 " & _
-			") " & _
-			"SELECT " & _
-			"	object_name,status,creation_time,end_time,reason,work_details_text " & _
-			"FROM DistinctHost " & _
-			"WHERE rn = 1;"
+		$sql = "WITH HostsConcatenated AS (" & @CRLF  & _
+				"    SELECT " & @CRLF  & _
+				"        ij.job_id, " & @CRLF  & _
+				"        string_agg(o.object_name || ',' || COALESCE(o.viobject_type, 'NoType'), '|') AS hosts " & @CRLF  & _
+				"    FROM " & @CRLF  & _
+				"        public." & chr(34) & "objectsinjobsview" & chr(34) & " ij " & @CRLF  & _
+				"    JOIN " & @CRLF  & _
+				"        public." & chr(34) & "objectsview" & chr(34) & " o ON o.id = ij.object_id " & @CRLF  & _
+				"    GROUP BY " & @CRLF  & _
+				"        ij.job_id " & @CRLF  & _
+				"), " & @CRLF  & _
+				"LatestBackupState AS (" & @CRLF  & _
+				"    SELECT " & @CRLF  & _
+				"        bs.job_id, " & @CRLF  & _
+				"        bs.job_type, " & @CRLF  & _
+				"        bs.state, " & @CRLF  & _
+				"        bs.result, " & @CRLF  & _
+				"        bs.reason, " & @CRLF  & _
+				"        bs.creation_time, " & @CRLF  & _
+				"        bs.end_time, " & @CRLF  & _
+				"        ROW_NUMBER() OVER (PARTITION BY bs.job_id ORDER BY bs.creation_time DESC) AS rn " & @CRLF  & _
+				"    FROM " & @CRLF  & _
+				"        public." & chr(34) & "backup.model.jobsessions" & chr(34) & " bs " & @CRLF  & _
+				"), " & @CRLF  & _
+				"LatestBackupTaskSession AS (" & @CRLF  & _
+				"    SELECT " & @CRLF  & _
+				"        bts.session_id, " & @CRLF  & _
+				"        bts.status, " & @CRLF  & _
+				"        bts.reason, " & @CRLF  & _
+				"        bts.creation_time, " & @CRLF  & _
+				"        js.job_id, " & @CRLF  & _
+				"        ROW_NUMBER() OVER (PARTITION BY js.job_id ORDER BY bts.creation_time DESC) AS rn " & @CRLF  & _
+				"    FROM " & @CRLF  & _
+				"        public." & chr(34) & "backup.model.backuptasksessions" & chr(34) & " bts " & @CRLF  & _
+				"    JOIN " & @CRLF  & _
+				"        public." & chr(34) & "backup.model.jobsessions" & chr(34) & " js ON bts.session_id = js.id " & @CRLF  & _
+				") " & @CRLF  & _
+				"SELECT " & @CRLF  & _
+				"    j.id AS job_id, " & @CRLF  & _
+				"    j.name AS job_name, " & @CRLF  & _
+				"    j.repository_id, " & @CRLF  & _
+				"    r.name AS repository_name, " & @CRLF  & _
+				"    j.type AS job_type, " & @CRLF  & _
+				"    j.is_deleted AS is_job_deleted, " & @CRLF  & _
+				"    j.latest_result AS latest_job_result, " & @CRLF  & _
+				"    j.schedule_enabled AS is_schedule_enabled, " & @CRLF  & _
+				"    j.parent_job_id, " & @CRLF  & _
+				"    j.parent_schedule_id, " & @CRLF  & _
+				"    hc.hosts AS backup_hosts, " & @CRLF  & _
+				"    lbs.job_type AS backup_job_type, " & @CRLF  & _
+				"    lbs.state AS backup_state, " & @CRLF  & _
+				"    lbs.result AS backup_result, " & @CRLF  & _
+				"    lbs.reason AS backup_reason, " & @CRLF  & _
+				"    lbs.creation_time AS backup_creation_time, " & @CRLF  & _
+				"    lbs.end_time AS backup_end_time, " & @CRLF  & _
+				"    bts.status AS backup_task_status, " & @CRLF  & _
+				"    bts.reason AS backup_task_reason, " & @CRLF  & _
+				"    bts.session_id AS backup_task_session_id, " & @CRLF  & _
+				"    (xpath('//OptionsScheduleAfterJob/IsEnabled/text()', xmlparse(document j.schedule)))[1]::text AS job_schedule_afterjob_enabled, " & @CRLF  & _
+				"    (xpath('//OptionsDaily/Enabled/text()', xmlparse(document j.schedule)))[1]::text AS job_schedule_daily_enabled, " & @CRLF  & _
+				"    (xpath('//OptionsDaily/Kind/text()', xmlparse(document j.schedule)))[1]::text AS job_schedule_daily_kind, " & @CRLF  & _
+				"    array_to_string(" & @CRLF  & _
+				"        array(" & @CRLF  & _
+				"            SELECT unnest(xpath('//OptionsDaily/Days/DayOfWeek/text()', xmlparse(document j.schedule)))" & @CRLF  & _
+				"        ), ', ' " & @CRLF  & _
+				"    ) AS job_schedule_daily_days, " & @CRLF  & _
+				"    (xpath('//OptionsMonthly/Enabled/text()', xmlparse(document j.schedule)))[1]::text AS job_schedule_monthly_enabled, " & @CRLF  & _
+				"    (xpath('//OptionsPeriodically/Enabled/text()', xmlparse(document j.schedule)))[1]::text AS job_schedule_periodically_enabled, " & @CRLF  & _
+				"    array_to_string(" & @CRLF  & _
+				"        array(" & @CRLF  & _
+				"            SELECT unnest(xpath('//OptionsMonthly/Months/EMonth/text()', xmlparse(document j.schedule)))" & @CRLF  & _
+				"        ), ', ' " & @CRLF  & _
+				"    ) AS job_schedule_monthly_months " & @CRLF  & _
+				"FROM " & @CRLF  & _
+				"    public." & chr(34) & "jobsview" & chr(34) & " j " & @CRLF  & _
+				"LEFT JOIN " & @CRLF  & _
+				"    HostsConcatenated hc ON j.id = hc.job_id " & @CRLF  & _
+				"LEFT JOIN " & @CRLF  & _
+				"    public." & chr(34) & "backuprepositories" & chr(34) & " r ON j.repository_id = r.id " & @CRLF  & _
+				"LEFT JOIN " & @CRLF  & _
+				"    LatestBackupState lbs ON j.id = lbs.job_id AND lbs.rn = 1 " & @CRLF  & _
+				"LEFT JOIN " & @CRLF  & _
+				"    LatestBackupTaskSession bts ON j.id = bts.job_id AND bts.rn = 1 " & @CRLF  & _
+				"WHERE " & @CRLF  & _
+				"    bts.session_id IS NOT NULL;"
 
-		$sql_agents = "WITH RankedTasks AS ( " & _
-			"	SELECT " & _
-			"		object_name,status,creation_time,end_time,CAST(reason AS VARCHAR(255)) AS reason,work_details, " & _
-			"		ROW_NUMBER() OVER (PARTITION BY object_name ORDER BY end_time DESC) AS rn " & _
-			"	FROM public." & chr(34) & "backup.model.backuptasksessions" & chr(34) & " " & _
-			"	WHERE " & _
-			"		NOT EXISTS ( " & _
-			"			SELECT 1 " & _
-			"			FROM unnest(xpath('//RepositoryId', work_details)) AS x " & _
-			"		) " & _
-			"		AND " & _
-			"		NOT EXISTS ( " & _
-			"			SELECT 1 " & _
-			"			FROM unnest(xpath('//*[@hostDnsName]', work_details)) AS x " & _
-			"		) " & _
-			"			AND EXISTS ( " & _
-			"			SELECT 1 " & _
-			"			FROM unnest(xpath('//Item[@OibId]', work_details)) AS x " & _
-			"		) " & _
-			") " & _
-			"SELECT " & _
-			"	object_name,status,creation_time,end_time,reason,work_details " & _
-			"FROM RankedTasks " & _
-			"WHERE rn = 1;"
 	EndIf
 
 	$Array_Disc = "{" & chr(34) & "data" & chr(34) & ":["
 	$Array_Disc_Tmp = ""
 	$Comma = ""
 
-	_SqlRetrieveData("RepositoryId",$sql_repositoryid)
-	_SqlRetrieveData("hostDnsName",$sql_hostdnsname)
-	_SqlRetrieveData("Agents",$sql_agents)
+    ; Get jobs for discovery
+	$Result_Discovery = _SqlRetrieveData($sqldiscovery)
+	If IsObj($Result_Discovery) then
+		DiscoveryData($Result_Discovery,$sDriver)
+	else
+		_logmsg($LogFile,"Error Main SQL: " & $Result_Discovery,true,true)
+	Endif
+
+	; Core data retrieve
+	$Result_Data = _SqlRetrieveData($sql)
+	If IsObj($Result_Data) then
+		BackupData($Result_Data,$sDriver)
+	else
+		_logmsg($LogFile,"Error Main SQL: " & $Result_Data,true,true)
+	Endif
 
 	$Array_Disc &= $Array_Disc_Tmp & "]}"
 
@@ -370,14 +534,8 @@ Func _VeeamDataSearch()
 	RunWait($ZabbixSend,$ZabbixBasePath,@SW_HIDE)
 
 	; Jobs Count
-	_logmsg($LogFile,"Zabbix - Guest Count",false,true)
-	$Zabbix_Items = _add_item_zabbix($Zabbix_Items,"backup.veeam.customchecks.guest.count",$GuestCount)
-	_logmsg($LogFile,"Zabbix - Backup Count",false,true)
-	$Zabbix_Items = _add_item_zabbix($Zabbix_Items,"backup.veeam.customchecks.type.backup.count",$BackupCount)
-	_logmsg($LogFile,"Zabbix - Replica Count",false,true)
-	$Zabbix_Items = _add_item_zabbix($Zabbix_Items,"backup.veeam.customchecks.type.replica.count",$ReplicaCount)
-	_logmsg($LogFile,"Zabbix - Agent Count",false,true)
-	$Zabbix_Items = _add_item_zabbix($Zabbix_Items,"backup.veeam.customchecks.type.agent.count",$AgentCount)
+	_logmsg($LogFile,"Zabbix - Jobs Count",false,true)
+	$Zabbix_Items = _add_item_zabbix($Zabbix_Items,"backup.veeam.customchecks.jobs.count",$JobsCount)
 
 	; Send data to Zabbix
 	_logmsg($LogFile,"Zabbix - Data",false,true)
@@ -401,184 +559,690 @@ Func _SQLConnection()
 		$port_string = 'PORT=' & $sPort & ';'
 	EndIf
 
-	$sConnectionString = 'DRIVER={' & $sDriver & '};SERVER=' & $sServer & ';DATABASE=' & $sDatabase & ';UID=' & $sUID & ';PWD=' & $sPWD & ';' & $port_string
+	$TrustedConn = ""
+
+	if stringinstr($sDriver,"SQL Server") <> 0 then
+		$TrustedConn= "Trusted_Connection=Yes"
+	endif
+
+	$sConnectionString = 'DRIVER={' & $sDriver & '};SERVER=' & $sServer & ';DATABASE=' & $sDatabase & ';UID=' & $sUID & ';PWD=' & $sPWD & ';' & $port_string & ";" & $TrustedConn
 
 	$oConnection = _ADO_Connection_Create()
 	_logmsg($LogFile,"Connection to " & $sDriver,false,true)
 
-	If $Debug = 1 Then
+	If $Debug = 2 Then
 		_logmsg($LogFile,"ConnectionString: " & $sConnectionString,true,true)
 	EndIf
 
-	; Connection to SQL
 	_ADO_Connection_OpenConString($oConnection, $sConnectionString)
 
 	If @error Then
-		_logmsg($LogFile,"Connection Error: " & @error,true,true)
+		_logmsg($LogFile,"Connection Error: " & @error & " - " & @extended & " - " & $ADO_RET_FAILURE,true,true)
 		Return SetError(@error, @extended, $ADO_RET_FAILURE)
 	EndIf
 EndFunc
 
-Func _SqlRetrieveData($TargetType,$sql)
+Func _SqlRetrieveData($sql)
 
-	_logmsg($LogFile,"Retrieve Data - " & $TargetType,false,true)
+	if $sql = "" then
+		return null
+	endif
 
-	Local $oRecordset = _ADO_Execute($oConnection,$sql)
+	Local $oRecordset = _ADO_Execute($oConnection, $sql)
 	If @error Then
-		_logmsg($LogFile,"Retrieve data error: " & @error,true,true)
+		Local $sErrorDetail = ""
+		If IsObj($oConnection.Errors) Then
+			For $oError In $oConnection.Errors
+				$sErrorDetail &= "Descrizione: " & $oError.Description & @CRLF
+				$sErrorDetail &= "Numero: " & $oError.Number & @CRLF
+				$sErrorDetail &= "Origine: " & $oError.Source & @CRLF
+			Next
+		Else
+			$sErrorDetail = "Nessun dettaglio disponibile"
+		EndIf
+
+		_logmsg($LogFile, "Retrieve data error: " & @error & " - " & @extended & @CRLF & $sErrorDetail, True, True)
 		Return SetError(@error, @extended, $ADO_RET_FAILURE)
 	EndIf
 
-	If $Debug = 1 Then
-		_logmsg($LogFile,"SQL: " & $sql,true,true)
+	If $Debug = 2 Then
+		_logmsg($LogFile, "SQL: " & $sql, True, True)
 	EndIf
 
-	Local $aRecordsetArray = _ADO_Recordset_ToArray($oRecordset, False)
-	Local $aRecordset_inner = _ADO_RecordsetArray_GetContent($aRecordsetArray)
+	Return $oRecordset
+EndFunc
 
-	Local $iColumn_count = UBound($aRecordset_inner, $UBOUND_COLUMNS)
+Func DiscoveryData($Recordset,$sDriver)
+	$count = 0
 
-	For $iRecord_idx = 0 To UBound($aRecordset_inner) - 1
-		if $iColumn_count = 6 then
+	_logmsg($LogFile,"",true,true)
+	_logmsg($LogFile,"List jobs found:",true,true)
 
-			Local $MonitorEnabled = 0
-			Local $ObjName = $aRecordset_inner[$iRecord_idx][0]
-			Local $Status = $aRecordset_inner[$iRecord_idx][1]
-			Local $Reason = $aRecordset_inner[$iRecord_idx][4]
+	While Not $Recordset.EOF
 
-			Local $WorkDetails = $aRecordset_inner[$iRecord_idx][5]
+		Local $MonitorEnabled = 0
 
-			Local $Target = ""
-			Local $tag = ""
-			If $TargetType = "RepositoryId" Then
-				$Target = _GetRepositoryName($WorkDetails)
-				$tag = "R"
-				$BackupCount += 1
-				$MonitorEnabled = 1
-			EndIf
-			If $TargetType = "hostDnsName" Then
-				$Target = _XMLExtractValue($WorkDetails,"//HvDataStorage/@hostDnsName")
-				$tag = "D"
-				$ReplicaCount += 1
-				$MonitorEnabled = 1
-			EndIf
-			If $TargetType = "Agents" Then
-				$Target = "N/A"
-				$tag = "A"
-				$AgentCount += 1
-				$MonitorEnabled = $AgentEnabled
-			EndIf
+		$count += 1
 
-			If $Target = "" Then
-				$DataErrors &= $ObjName & "(" & $TargetType & ") with no target " & @CR
-				_logmsg($LogFile,"DataErrors: " & $DataErrors & @CRLF & "XML: " & $WorkDetails,true,true)
-				ContinueLoop
-			EndIf
+		Local $job_name_original = $Recordset.Fields("job_name").Value
+		Local $job_name = StringReplace($job_name_original,",","_")
 
-			$GuestCount += 1
-			If $TargetType = "Agents" and $AgentEnabled = 0 then
-				ContinueLoop
-			EndIf
+		Local $is_schedule_enabled = $Recordset.Fields("is_schedule_enabled").Value
+		Local $is_job_deleted = $Recordset.Fields("is_job_deleted").Value
+		Local $backup_job_type = $Recordset.Fields("job_type").Value
 
-			_logmsg($LogFile,"################ Row " & $iRecord_idx,true,true)
+		$CheckJobType = 1
 
-			$Target &= "(" & $tag & ")"
+		If $JobTypes <> "" then
+			Local $regex = "\b" & $backup_job_type & "\b"
+			$CheckJobType = StringRegExp($JobTypes,$regex)
+		Endif
 
-			Local $CreationTime = $aRecordset_inner[$iRecord_idx][2]
-			Local $CreationTime_Date = _DateVeeamFormat($CreationTime)
+		If ( ($is_schedule_enabled = 1 or $is_schedule_enabled = "true" ) and ( $is_job_deleted = 0 or $is_job_deleted = "false" ) and $CheckJobType > 0 ) then
+			$MonitorEnabled = 1
+		Endif
 
-			Local $EndTime = $aRecordset_inner[$iRecord_idx][3]
-			Local $EndTime_Date = _DateVeeamFormat($EndTime)
+		If $MonitorEnabled = 1 Then
+			$JobsCount += 1
+		EndIf
 
-			Local $DateDiff = _DateDiff('D',$EndTime_Date,_NowCalc())
-			Local $Duration = _DateDiff('n',$CreationTime_Date,$EndTime_Date)
-
-			$Array_Disc_Tmp &= $Comma & "{" & chr(34) & "{#VEEAMGUEST}" & chr(34) & ":" & chr(34) & $ObjName & "" & chr(34) & "," & chr(34) & "{#VEEAMTARGET}" & chr(34) & ":" & chr(34) & $Target & "" & chr(34) & "}"
+		If $MonitorEnabled = 1 Then
+			$Array_Disc_Tmp &= $Comma & "{" & chr(34) & "{#VEEAMJOB}" & chr(34) & ":" & chr(34) & $job_name & "" & chr(34) & "}"
 			$Comma = ","
 
-			$Zabbix_Items = _add_item_zabbix($Zabbix_Items,"backup.veeam.customchecks.enabled[" & $ObjName & ":" & $Target & "]",$MonitorEnabled)
-			$Zabbix_Items = _add_item_zabbix($Zabbix_Items,"backup.veeam.customchecks.status[" & $ObjName & ":" & $Target & "]",$Status)
-			$Zabbix_Items = _add_item_zabbix($Zabbix_Items,"backup.veeam.customchecks.reason[" & $ObjName & ":" & $Target & "]",$Reason)
-			$Zabbix_Items = _add_item_zabbix($Zabbix_Items,"backup.veeam.customchecks.creationtime[" & $ObjName & ":" & $Target & "]",$CreationTime_Date)
-			$Zabbix_Items = _add_item_zabbix($Zabbix_Items,"backup.veeam.customchecks.endtime[" & $ObjName & ":" & $Target & "]",$EndTime_Date)
-			$Zabbix_Items = _add_item_zabbix($Zabbix_Items,"backup.veeam.customchecks.datediff[" & $ObjName & ":" & $Target & "]",$DateDiff)
-			$Zabbix_Items = _add_item_zabbix($Zabbix_Items,"backup.veeam.customchecks.duration[" & $ObjName & ":" & $Target & "]",$Duration)
+			$Zabbix_Items = _add_item_zabbix($Zabbix_Items,"backup.veeam.customchecks.enabled[" & $job_name & "]",$MonitorEnabled)
+		Endif
 
-			; Debug
-			if $Debug = 1 then
-				_logmsg($LogFile,"ObjName: " & $ObjName,true,true)
-				_logmsg($LogFile,"Tag: " & $tag,true,true)
-				_logmsg($LogFile,"Status: " & $Status,true,true)
-				_logmsg($LogFile,"Reason: " & $Reason,true,true)
-				_logmsg($LogFile,"WorkDetails: " & $WorkDetails,true,true)
-				_logmsg($LogFile,"Target: " & $Target,true,true)
-				_logmsg($LogFile,"CreationTime: " & $CreationTime_Date & "(" & $CreationTime & ")",true,true)
-				_logmsg($LogFile,"EndTime: " & $EndTime_Date & "(" & $EndTime & ")",true,true)
-				_logmsg($LogFile,"Duration: " & $Duration,true,true)
-				_logmsg($LogFile,"DateDiff: " & $DateDiff,true,true)
-			endif
+		_logmsg($LogFile,"-> (M:" & $MonitorEnabled & ") Job Name: " & $job_name_original,true,true)
+
+		If $Debug > 0 then
+			_logmsg($LogFile,"   IsScheduleEnabled: " & $is_schedule_enabled,true,true)
+			_logmsg($LogFile,"   IsJobDeleted: " & $is_job_deleted,true,true)
+			_logmsg($LogFile,"   CheckJobType (" & $backup_job_type & "): " & $CheckJobType,true,true)
+		EndIf
+
+		$Recordset.MoveNext()
+	WEnd
+
+	_logmsg($LogFile,"",true,true)
+
+EndFunc
+
+Func BackupData($Recordset,$sDriver)
+
+;~ 	; Old Code
+;~ 	Local $aRecordsetArray = _ADO_Recordset_ToArray($Recordset, False)
+;~ 	Local $aRecordset_inner = _ADO_RecordsetArray_GetContent($aRecordsetArray)
+;~ 	Local $iColumn_count = UBound($aRecordset_inner, $UBOUND_COLUMNS)
+
+;~ 	; Ottieni il numero di righe e colonne
+;~ 	Local $iRowCount = UBound($aRecordset_inner, $UBOUND_ROWS)
+;~ 	Local $iColumnCount = UBound($aRecordset_inner, $UBOUND_COLUMNS)
+
+;~ 	; Cicla ogni riga
+;~ 	For $iRow = 0 To $iRowCount - 1
+;~ 		; Cicla ogni colonna nella riga
+;~ 		For $iCol = 0 To $iColumnCount - 1
+;~ 			; Leggi il valore della cella
+;~ 			Local $value = $aRecordset_inner[$iRow][$iCol]
+;~ 			ConsoleWrite("Valore alla riga " & $iRow & ", colonna " & $iCol & ": " & $value & @CRLF)
+;~ 		Next
+;~ 	Next
+	;ConsoleWrite(@CRLF & "R: " & UBound($aRecordset_inner) & " C: " & $iColumn_count & @CRLF & @CRLF)
+
+	; job_id
+	; job_name
+	; repository_id
+	; repository_name
+	; job_type
+	; job_schedule
+	; is_job_deleted
+	; latest_job_result
+	; is_schedule_enabled
+	; parent_schedule_id
+	; backup_hosts
+	; backup_job_type
+	; backup_state
+	; backup_result
+	; backup_creation_time
+	; backup_end_time
+	; backup_task_status
+	; backup_task_reason
+	; backup_task_session_id
+	; job_schedule_afterjob_enabled
+	; job_schedule_daily_enabled
+	; job_schedule_daily_kind
+	; job_schedule_daily_days
+	; job_schedule_monthly_enabled
+	; job_schedule_periodically_enabled
+	; job_schedule_monthly_months
+
+	While Not $Recordset.EOF
+
+		;Local $MonitorEnabled = 0
+
+		Local $job_name_original = $Recordset.Fields("job_name").Value
+		Local $job_name = StringReplace($job_name_original,",","_")
+
+		_logmsg($LogFile,"",true,true)
+		_logmsg($LogFile,"-> Original Job Name: " & $job_name_original,true,true)
+
+		Local $backup_creation_time = $Recordset.Fields("backup_creation_time").Value
+		Local $backup_creation_time_date = _DateVeeamFormat($backup_creation_time)
+
+		Local $backup_end_time = $Recordset.Fields("backup_end_time").Value
+		Local $backup_end_time_date = _DateVeeamFormat($backup_end_time)
+
+		Local $Duration = ""
+		If $backup_end_time_date > $backup_creation_time_date then
+			$Duration = _DateDiff('n',$backup_creation_time_date,$backup_end_time_date)
+		Else
+			$Duration = "Backup starting or in progress"
+		Endif
+
+		Local $backup_state = $Recordset.Fields("backup_state").Value
+		Local $backup_result = $Recordset.Fields("backup_result").Value
+		Local $backup_reason = $Recordset.Fields("backup_reason").Value
+
+		Local $backup_task_status = $Recordset.Fields("backup_task_status").Value
+		Local $backup_task_reason = $Recordset.Fields("backup_task_reason").Value
+
+		Local $is_schedule_enabled = $Recordset.Fields("is_schedule_enabled").Value
+		Local $is_job_deleted = $Recordset.Fields("is_job_deleted").Value
+
+		Local $parent_job_id = $Recordset.Fields("parent_job_id").Value
+
+		Local $backup_job_type = $Recordset.Fields("backup_job_type").Value
+
+;~ 		$CheckJobType = 1
+
+;~ 		If $JobTypes <> "" then
+;~ 			Local $regex = "\b" & $backup_job_type & "\b"
+;~ 			$CheckJobType = StringRegExp($JobTypes,$regex)
+;~ 		Endif
+
+;~ 		If ( $is_schedule_enabled = 1 and $is_job_deleted = 0 and $CheckJobType > 0 ) then
+;~ 			$MonitorEnabled = 1
+;~ 		Endif
+
+;~ 		If $MonitorEnabled = 1 Then
+;~ 			$JobsCount += 1
+;~ 		EndIf
+
+		;for $i = 0 to 24
+		;	ConsoleWrite(@CRLF & $Recordset.Fields($i).Value)
+		;Next
+
+		Local $job_schedule_afterjob_enabled = $Recordset.Fields("job_schedule_afterjob_enabled").Value
+		Local $job_schedule_afterjob_name = ""
+		Local $job_schedule_daily_enabled = $Recordset.Fields("job_schedule_daily_enabled").Value
+		Local $job_schedule_daily_kind = $Recordset.Fields("job_schedule_daily_kind").Value
+		Local $job_schedule_daily_days = StringReplace($Recordset.Fields("job_schedule_daily_days").Value," ","")
+		Local $job_schedule_daily_days_array = StringSplit($job_schedule_daily_days,",")
+		Local $job_schedule_monthly_enabled = $Recordset.Fields("job_schedule_monthly_enabled").Value
+		Local $job_schedule_monthly_months = StringReplace($Recordset.Fields("job_schedule_monthly_months").Value," ","")
+		Local $job_schedule_monthly_months_array = StringSplit($job_schedule_monthly_months,",")
+		Local $job_schedule_periodically_enabled = $Recordset.Fields("job_schedule_periodically_enabled").Value
+
+		Local $parent_schedule_id = $Recordset.Fields("parent_schedule_id").Value
+
+		;ConsoleWrite(@CRLF & "P:" & $parent_job_id & @CRLF)
+
+		If $parent_job_id <> Null then
+			$sql = ""
+			If $sDriver = "SQL Server" then
+				$sql = "SELECT" & @CRLF & _
+						"    id," & @CRLF & _
+						"    name," & @CRLF & _
+						"	 parent_schedule_id," & @CRLF & _
+						"    schedule.value('(//OptionsScheduleAfterJob/IsEnabled/text())[1]', 'VARCHAR(MAX)') AS job_schedule_afterjob_enabled," & @CRLF & _
+						"    schedule.value('(//OptionsDaily/Enabled/text())[1]', 'VARCHAR(MAX)') AS job_schedule_daily_enabled," & @CRLF & _
+						"    schedule.value('(//OptionsDaily/Kind/text())[1]', 'VARCHAR(MAX)') AS job_schedule_daily_kind," & @CRLF & _
+						"    STUFF((" & @CRLF & _
+						"        SELECT ', ' + x.EMonth.value('.', 'VARCHAR(MAX)')" & @CRLF & _
+						"        FROM schedule.nodes('(//OptionsDaily/Days/DayOfWeek)') AS x(EMonth)" & @CRLF & _
+						"        FOR XML PATH('')" & @CRLF & _
+						"    ), 1, 2, '') AS job_schedule_daily_days," & @CRLF & _
+						"    schedule.value('(//OptionsPeriodically/Enabled/text())[1]', 'VARCHAR(MAX)') AS job_schedule_periodically_enabled," & @CRLF & _
+						"    schedule.value('(//OptionsMonthly/Enabled/text())[1]', 'VARCHAR(MAX)') AS job_schedule_monthly_enabled," & @CRLF & _
+						"    STUFF((" & @CRLF & _
+						"        SELECT ', ' + x.EMonth.value('.', 'VARCHAR(MAX)')" & @CRLF & _
+						"        FROM schedule.nodes('(//OptionsMonthly/Months/EMonth)') AS x(EMonth)" & @CRLF & _
+						"        FOR XML PATH('')" & @CRLF & _
+						"    ), 1, 2, '') AS job_schedule_monthly_months" & @CRLF & _
+						"FROM dbo.[jobsview]" & @CRLF & _
+						"WHERE id = '" & $parent_job_id & "';"
+
+			Endif
+
+			If $sDriver = "PostgreSQL ANSI" then
+				$sql = "SELECT " & @CRLF & _
+					   "    id," & @CRLF & _
+					   "    name," & @CRLF & _
+					   "	parent_schedule_id," & @CRLF & _
+					   "    (xpath('//OptionsScheduleAfterJob/IsEnabled/text()', xmlparse(document schedule)))[1]::text AS job_schedule_afterjob_enabled," & @CRLF & _
+					   "    (xpath('//OptionsDaily/Enabled/text()', xmlparse(document schedule)))[1]::text AS job_schedule_daily_enabled," & @CRLF & _
+					   "    (xpath('//OptionsDaily/Kind/text()', xmlparse(document schedule)))[1]::text AS job_schedule_daily_kind," & @CRLF & _
+					   "    array_to_string(" & @CRLF & _
+					   "        array(" & @CRLF & _
+					   "            SELECT unnest(xpath('//OptionsDaily/Days/DayOfWeek/text()', xmlparse(document schedule)))" & @CRLF & _
+					   "        ), ', '" & @CRLF & _
+					   "    ) AS job_schedule_daily_days," & @CRLF & _
+					   "    (xpath('//OptionsMonthly/Enabled/text()', xmlparse(document schedule)))[1]::text AS job_schedule_monthly_enabled," & @CRLF & _
+					   "    (xpath('//OptionsPeriodically/Enabled/text()', xmlparse(document schedule)))[1]::text AS job_schedule_periodically_enabled," & @CRLF & _
+					   "    array_to_string(" & @CRLF & _
+					   "        array(" & @CRLF & _
+					   "            SELECT unnest(xpath('//OptionsMonthly/Months/EMonth/text()', xmlparse(document schedule)))" & @CRLF & _
+					   "        ), ', '" & @CRLF & _
+					   "    ) AS job_schedule_monthly_months" & @CRLF & _
+					   "FROM public.jobsview" & @CRLF & _
+					   "WHERE id = '" & $parent_job_id & "';"
+			Endif
+
+			;ConsoleWrite(@CRLF & $sql & @CRLF)
+			;exit
+			$oRecordset_Job = _SqlRetrieveData($sql)
+
+			If IsObj($oRecordset_Job) then
+				While Not $oRecordset_Job.EOF
+
+					$parent_schedule_id = $oRecordset_Job.Fields("parent_schedule_id").Value
+					$job_schedule_afterjob_enabled = $oRecordset_Job.Fields("job_schedule_afterjob_enabled").Value
+					$job_schedule_afterjob_name = $oRecordset_Job.Fields("name").Value
+					$job_schedule_daily_enabled = $oRecordset_Job.Fields("job_schedule_daily_enabled").Value
+					$job_schedule_daily_kind = $oRecordset_Job.Fields("job_schedule_daily_kind").Value
+					$job_schedule_daily_days = StringReplace($oRecordset_Job.Fields("job_schedule_daily_days").Value," ","")
+					$job_schedule_daily_days_array = StringSplit($job_schedule_daily_days,",")
+					$job_schedule_monthly_enabled = $oRecordset_Job.Fields("job_schedule_monthly_enabled").Value
+					$job_schedule_monthly_months = StringReplace($oRecordset_Job.Fields("job_schedule_monthly_months").Value," ","")
+					$job_schedule_monthly_months_array = StringSplit($job_schedule_monthly_months,",")
+					$job_schedule_periodically_enabled = $oRecordset_Job.Fields("job_schedule_periodically_enabled").Value
+
+					$oRecordset_Job.MoveNext()
+				WEnd
+			else
+				_logmsg($LogFile,"Error Parent Job SQL: " & $oRecordset_Job,true,true)
+			Endif
+		Endif
+
+		If $job_schedule_afterjob_enabled = "true" and $parent_schedule_id <> Null and $parent_schedule_id <> "00000000-0000-0000-0000-000000000000" then
+			$sql = ""
+			If $sDriver = "SQL Server" then
+				$sql = "WITH ParentHierarchy AS (" & @CRLF & _
+						"    -- First level: Retrieve initial record" & @CRLF & _
+						"    SELECT" & @CRLF & _
+						"        id," & @CRLF & _
+						"        parent_schedule_id," & @CRLF & _
+						"        name," & @CRLF & _
+						"        schedule" & @CRLF & _
+						"    FROM" & @CRLF & _
+						"        dbo.jobsview" & @CRLF & _
+						"    WHERE" & @CRLF & _
+						"        id = '" & $parent_schedule_id & "'" & @CRLF & _
+						"    UNION ALL" & @CRLF & _
+						"    -- Next levels: Search for parent_schedule_id" & @CRLF & _
+						"    SELECT" & @CRLF & _
+						"        j.id," & @CRLF & _
+						"        j.parent_schedule_id," & @CRLF & _
+						"        j.name," & @CRLF & _
+						"        j.schedule" & @CRLF & _
+						"    FROM" & @CRLF & _
+						"        dbo.jobsview j" & @CRLF & _
+						"    INNER JOIN" & @CRLF & _
+						"        ParentHierarchy ph ON j.id = ph.parent_schedule_id" & @CRLF & _
+						")" & @CRLF & _
+						"-- Select last record found (parent_schedule_id = NULL)" & @CRLF & _
+						"SELECT" & @CRLF & _
+						"    id," & @CRLF & _
+						"    name," & @CRLF & _
+						"    schedule.value('(//OptionsScheduleAfterJob/IsEnabled/text())[1]', 'VARCHAR(MAX)') AS job_schedule_afterjob_enabled," & @CRLF & _
+						"    schedule.value('(//OptionsDaily/Enabled/text())[1]', 'VARCHAR(MAX)') AS job_schedule_daily_enabled," & @CRLF & _
+						"    schedule.value('(//OptionsDaily/Kind/text())[1]', 'VARCHAR(MAX)') AS job_schedule_daily_kind," & @CRLF & _
+						"    STUFF((" & @CRLF & _
+						"        SELECT ', ' + x.EMonth.value('.', 'VARCHAR(MAX)')" & @CRLF & _
+						"        FROM schedule.nodes('(//OptionsDaily/Days/DayOfWeek)') AS x(EMonth)" & @CRLF & _
+						"        FOR XML PATH('')" & @CRLF & _
+						"    ), 1, 2, '') AS job_schedule_daily_days," & @CRLF & _
+						"    schedule.value('(//OptionsPeriodically/Enabled/text())[1]', 'VARCHAR(MAX)') AS job_schedule_periodically_enabled," & @CRLF & _
+						"    schedule.value('(//OptionsMonthly/Enabled/text())[1]', 'VARCHAR(MAX)') AS job_schedule_monthly_enabled," & @CRLF & _
+						"    STUFF((" & @CRLF & _
+						"        SELECT ', ' + x.EMonth.value('.', 'VARCHAR(MAX)')" & @CRLF & _
+						"        FROM schedule.nodes('(//OptionsMonthly/Months/EMonth)') AS x(EMonth)" & @CRLF & _
+						"        FOR XML PATH('')" & @CRLF & _
+						"    ), 1, 2, '') AS job_schedule_monthly_months" & @CRLF & _
+						"FROM ParentHierarchy" & @CRLF & _
+						"WHERE parent_schedule_id IS NULL;"
+
+			Endif
+
+			If $sDriver = "PostgreSQL ANSI" then
+				$sql = "WITH RECURSIVE ParentHierarchy AS (" & @CRLF & _
+					   "    -- First level: Retrieve initial record" & @CRLF & _
+					   "    SELECT " & @CRLF & _
+					   "        id," & @CRLF & _
+					   "        parent_schedule_id," & @CRLF & _
+					   "        name," & @CRLF & _
+					   "        schedule" & @CRLF & _
+					   "    FROM " & @CRLF & _
+					   "        public.jobsview" & @CRLF & _
+					   "    WHERE " & @CRLF & _
+					   "        id = '" & $parent_schedule_id & "'" & @CRLF & _
+					   "    UNION ALL" & @CRLF & _
+					   "    -- Next levels: Search for parent_schedule_id" & @CRLF & _
+					   "    SELECT " & @CRLF & _
+					   "        j.id," & @CRLF & _
+					   "        j.parent_schedule_id," & @CRLF & _
+					   "        j.name," & @CRLF & _
+					   "        j.schedule" & @CRLF & _
+					   "    FROM " & @CRLF & _
+					   "        public.jobsview j" & @CRLF & _
+					   "    INNER JOIN " & @CRLF & _
+					   "        ParentHierarchy ph ON j.id = ph.parent_schedule_id" & @CRLF & _
+					   "    WHERE " & @CRLF & _
+					   "        ph.parent_schedule_id IS NOT NULL" & @CRLF & _
+					   ")" & @CRLF & _
+					   "-- Select last record found (parent_schedule_id = NULL)" & @CRLF & _
+					   "SELECT " & @CRLF & _
+					   "    id," & @CRLF & _
+					   "    name," & @CRLF & _
+					   "    (xpath('//OptionsScheduleAfterJob/IsEnabled/text()', xmlparse(document schedule)))[1]::text AS job_schedule_afterjob_enabled," & @CRLF & _
+					   "    (xpath('//OptionsDaily/Enabled/text()', xmlparse(document schedule)))[1]::text AS job_schedule_daily_enabled," & @CRLF & _
+					   "    (xpath('//OptionsDaily/Kind/text()', xmlparse(document schedule)))[1]::text AS job_schedule_daily_kind," & @CRLF & _
+					   "    array_to_string(" & @CRLF & _
+					   "        array(" & @CRLF & _
+					   "            SELECT unnest(xpath('//OptionsDaily/Days/DayOfWeek/text()', xmlparse(document schedule)))" & @CRLF & _
+					   "        ), ', '" & @CRLF & _
+					   "    ) AS job_schedule_daily_days," & @CRLF & _
+					   "    (xpath('//OptionsMonthly/Enabled/text()', xmlparse(document schedule)))[1]::text AS job_schedule_monthly_enabled," & @CRLF & _
+					   "    (xpath('//OptionsPeriodically/Enabled/text()', xmlparse(document schedule)))[1]::text AS job_schedule_periodically_enabled," & @CRLF & _
+					   "    array_to_string(" & @CRLF & _
+					   "        array(" & @CRLF & _
+					   "            SELECT unnest(xpath('//OptionsMonthly/Months/EMonth/text()', xmlparse(document schedule)))" & @CRLF & _
+					   "        ), ', '" & @CRLF & _
+					   "    ) AS job_schedule_monthly_months" & @CRLF & _
+					   "FROM ParentHierarchy" & @CRLF & _
+					   "WHERE parent_schedule_id IS NULL;"
+			Endif
+
+			$oRecordset_Schedule = _SqlRetrieveData($sql)
+			If IsObj($oRecordset_Schedule) then
+				While Not $oRecordset_Schedule.EOF
+					$job_schedule_afterjob_name = $oRecordset_Schedule.Fields("name").Value
+					$job_schedule_daily_enabled = $oRecordset_Schedule.Fields("job_schedule_daily_enabled").Value
+					$job_schedule_daily_kind = $oRecordset_Schedule.Fields("job_schedule_daily_kind").Value
+					$job_schedule_daily_days = StringReplace($oRecordset_Schedule.Fields("job_schedule_daily_days").Value," ","")
+					$job_schedule_daily_days_array = StringSplit($job_schedule_daily_days,",")
+					$job_schedule_monthly_enabled = $oRecordset_Schedule.Fields("job_schedule_monthly_enabled").Value
+					$job_schedule_monthly_months = StringReplace($oRecordset_Schedule.Fields("job_schedule_monthly_months").Value," ","")
+					$job_schedule_monthly_months_array = StringSplit($job_schedule_monthly_months,",")
+					$job_schedule_periodically_enabled = $oRecordset_Schedule.Fields("job_schedule_periodically_enabled").Value
+
+					$oRecordset_Schedule.MoveNext()
+				WEnd
+			else
+				_logmsg($LogFile,"Error Parent Schedule SQL: " & $oRecordset_Schedule,true,true)
+			Endif
+		Endif
+
+		$nextBackupDate = ""
+
+		If $job_schedule_daily_enabled = "true" then
+			If $job_schedule_daily_kind = "Everyday" then
+				$nextBackupDate = _DateAdd("D",1,$backup_creation_time_date)
+			Else
+				$nextBackupDate = CalculateNextBackupDate($backup_creation_time_date,"D",$job_schedule_daily_days_array)
+			EndIf
+		EndIf
+
+		If $job_schedule_periodically_enabled = "true" then
+			$nextBackupDate = _DateAdd("D",1,$backup_creation_time_date)
+		EndIf
+
+		If $job_schedule_monthly_enabled = "true" then
+			Local $nextBackupDate = CalculateNextBackupDate($backup_creation_time_date,"M",$job_schedule_monthly_months_array)
+		EndIf
+
+		; Old code that add 1+ day at the nextschedule
+		;$checkBackupDateLate = _Dateadd("D",1,$nextBackupDate)
+
+		;ConsoleWrite(@CRLF & $backup_creation_time_date & " - " & $nextBackupDate & @CRLF)
+		$DateDiff_Check = _DateDiff('D',$backup_creation_time_date,$nextBackupDate)
+
+		$DateDiff = _DateDiff('D',$backup_creation_time_date,_NowCalc())
+		$DateDiff = $DateDiff - $DateDiff_Check
+
+		;$Array_Disc_Tmp &= $Comma & "{" & chr(34) & "{#VEEAMJOB}" & chr(34) & ":" & chr(34) & $job_name & "" & chr(34) & "}"
+		;$Comma = ","
+
+		$Zabbix_Items = _add_item_zabbix($Zabbix_Items,"backup.veeam.customchecks.job.state[" & $job_name & "]",$backup_state)
+		$Zabbix_Items = _add_item_zabbix($Zabbix_Items,"backup.veeam.customchecks.job.result[" & $job_name & "]",$backup_result)
+		$Zabbix_Items = _add_item_zabbix($Zabbix_Items,"backup.veeam.customchecks.job.reason[" & $job_name & "]",$backup_reason)
+		$Zabbix_Items = _add_item_zabbix($Zabbix_Items,"backup.veeam.customchecks.status[" & $job_name & "]",$backup_task_status)
+		$Zabbix_Items = _add_item_zabbix($Zabbix_Items,"backup.veeam.customchecks.reason[" & $job_name & "]",$backup_task_reason)
+		$Zabbix_Items = _add_item_zabbix($Zabbix_Items,"backup.veeam.customchecks.creationtime[" & $job_name & "]",$backup_creation_time_date)
+		$Zabbix_Items = _add_item_zabbix($Zabbix_Items,"backup.veeam.customchecks.endtime[" & $job_name & "]",$backup_end_time_date)
+		$Zabbix_Items = _add_item_zabbix($Zabbix_Items,"backup.veeam.customchecks.datediff[" & $job_name & "]",$DateDiff)
+		$Zabbix_Items = _add_item_zabbix($Zabbix_Items,"backup.veeam.customchecks.duration[" & $job_name & "]",$Duration)
+
+		; Debug
+		if $Debug = 1 then
+			_logmsg($LogFile,"JobName: " & $job_name_original,true,true)
+			_logmsg($LogFile,"JobNameMonitoring: " & $job_name,true,true)
+			;_logmsg($LogFile,"MonitoringEnabled: " & $MonitorEnabled,true,true)
+			_logmsg($LogFile,"JobType: " & $backup_job_type,true,true)
+			_logmsg($LogFile,"SessionState: " & $backup_state,true,true)
+			_logmsg($LogFile,"SessionResult: " & $backup_result,true,true)
+			_logmsg($LogFile,"SessionReason: " & $backup_reason,true,true)
+			_logmsg($LogFile,"Status: " & $backup_task_status,true,true)
+			_logmsg($LogFile,"Reason: " & $backup_task_reason,true,true)
+			_logmsg($LogFile,"CreationTime: " & $backup_creation_time_date & " (" & $backup_creation_time & ")",true,true)
+			_logmsg($LogFile,"EndTime: " & $backup_end_time_date & " (" & $backup_end_time & ")",true,true)
+			_logmsg($LogFile,"Duration (Min): " & $Duration,true,true)
+			_logmsg($LogFile,"DateDiff: " & $DateDiff,true,true)
+			_logmsg($LogFile,"ScheduleEnabled: " & $is_schedule_enabled,true,true)
+			_logmsg($LogFile,"NextSchedule: " & $nextBackupDate,true,true)
+			_logmsg($LogFile,"DateDiffCheck: " & $DateDiff_Check,true,true)
+			_logmsg($LogFile,"AfterJobEnabled: " & $job_schedule_afterjob_enabled,true,true)
+			_logmsg($LogFile,"AfterJobName: " & $job_schedule_afterjob_name,true,true)
+			_logmsg($LogFile,"DailyEnabled: " & $job_schedule_daily_enabled,true,true)
+			_logmsg($LogFile,"MonthlyEnabled: " & $job_schedule_monthly_enabled,true,true)
+			_logmsg($LogFile,"PeriodicallyEnabled: " & $job_schedule_periodically_enabled,true,true)
+			_logmsg($LogFile,"ParentScheduleID: " & $parent_schedule_id,true,true)
+			_logmsg($LogFile,"JobDeleted: " & $is_job_deleted,true,true)
 		endif
-	Next
+
+		$Recordset.MoveNext()
+	WEnd
+
+	_logmsg($LogFile,"",true,true)
+
+EndFunc
+
+Func GetDaysInMonth($year, $month)
+    Local $days = Int(@MON[$month])
+    If $month = 2 And Mod($year, 4) = 0 And (Mod($year, 100) <> 0 Or Mod($year, 400) = 0) Then
+        $days = 29
+    EndIf
+    Return $days
+EndFunc
+
+Func IsValidDate($year, $month, $day)
+    Return $day <= GetDaysInMonth($year, $month)
 EndFunc
 
 ; Convert Veeam data to usable format
 Func _DateVeeamFormat($date_string)
-	$date = -1
+    $date = -1
 
-	if StringLen($date_string) = 14 then
-		local $year = StringLeft($date_string,4)
+	$date_string = StringStripWS($date_string,$STR_STRIPSPACES)
+
+    ; Format AM/PM
+    If StringInStr($date_string, "AM") Or StringInStr($date_string, "PM") Then
+		local $parts = StringSplit($date_string, " ")
+
+		local $month_str = $parts[1]
+		local $day = $parts[2]
+		local $year = $parts[3]
+		local $time_str = $parts[4]
+
+		local $months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+		local $month = 0
+		For $i = 0 To 11
+			If $months[$i] = $month_str Then
+				$month = $i + 1
+				ExitLoop
+			EndIf
+		Next
+
+		local $time_parts = StringSplit($time_str, ":")
+		local $hour = $time_parts[1]
+		local $min = $time_parts[2]
+		local $ampm = StringRight($time_str, 2)
+
+		$hour = Int($hour)
+
+		If $ampm == "PM" Then
+			If $hour <> 12 Then
+				$hour = $hour + 12
+			EndIf
+		ElseIf $ampm == "AM" Then
+			If $hour == 12 Then
+				$hour = 0
+			EndIf
+		EndIf
+
+		$date = $year & "/" & StringFormat("%02d", $month) & "/" & StringFormat("%02d", $day) & " " & StringFormat("%02d", $hour) & ":" & StringFormat("%02d", $min) & ":00"
+
+    ElseIf StringLen($date_string) = 14 Then
+		; parsig format 20241125100000
+        local $year = StringLeft($date_string,4)
 		local $month = StringMid($date_string,5,2)
 		local $day = StringMid($date_string,7,2)
 		local $hour = StringMid($date_string,9,2)
 		local $min = StringMid($date_string,11,2)
 		local $sec = StringMid($date_string,13,2)
-		local $date = $year & "/" & $month & "/" & $day & " " & $hour & ":" & $min & ":" & $sec
-	EndIf
+		$date = $year & "/" & $month & "/" & $day & " " & $hour & ":" & $min & ":" & $sec
+    EndIf
 
-	Return $date
+    Return $date
+EndFunc
+Func MapMonthToNumber($monthName)
+    Local $monthsNames[12] = ["January", "February", "March", "April", "May", "June", _
+                               "July", "August", "September", "October", "November", "December"]
+    For $i = 0 To UBound($monthsNames) - 1
+        If $monthsNames[$i] = $monthName Then
+            Return $i + 1
+        EndIf
+    Next
+    Return -1
 EndFunc
 
-; Query to get repository name from id
-Func _GetRepositoryName($xml)
-	local $RepositoryId = ""
-	Local $RepositoryName = ""
+Func MapDayToNumber($dayName)
+    Local $daysNames[12] = ["Sunday" , "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
+    For $i = 0 To UBound($daysNames) - 1
+        If $daysNames[$i] = $dayName Then
+            Return $i + 1
+        EndIf
+    Next
+    Return -1
+EndFunc
 
-	$RepositoryId = _XMLExtractValue($xml,"//RepositoryId")
+Func ParseMonthsFromXML($xml)
+    Local $oXML = ObjCreate("Microsoft.XMLDOM")
+    Local $monthsList = []
+    If $oXML.loadXML($xml) Then
+        Local $nodes = $oXML.SelectNodes("//ScheduleOptions/OptionsMonthly/Months/EMonth")
+        For $node In $nodes
+            _ArrayAdd($monthsList, $node.text)
+        Next
+	Else
+		ConsoleWrite(@CRLF & "Errore: " & $oXML.parseError.reason & @CRLF & @CRLF & $xml & @CRLF & @CRLF)
+    EndIf
+    Return $monthsList
+EndFunc
 
-	If $RepositoryId <> "" then
+Func CalculateNextBackupDate($lastBackupDate, $type, $list)
 
-		Local $sql = "SELECT name FROM dbo.[BackupRepositories] WHERE id = '" & $RepositoryId & "';"
+	Local $nextBackupDate = $lastBackupDate
+	Local $MaxTries = 1
 
-		If StringInStr($sDriver,"PostgreSQL") then
-			$sql = 'SELECT name FROM public."backuprepositories" WHERE id = ' & chr(39) & $RepositoryId & chr(39) & ';'
+	If $type ="M" then
+		$MaxTries = 12
+	EndIf
+	If $type ="D" then
+		$MaxTries = 7
+	EndIf
+
+    Local $temporalNames[1] = [0]
+    For $i = 1 To $list[0]
+		If $type ="M" then
+			Local $Num = MapMonthToNumber($list[$i])
+		EndIf
+		If $type ="D" then
+			Local $Num = MapDayToNumber($list[$i])
 		EndIf
 
-		If $Debug = 1 Then
-			_logmsg($LogFile,"SQL_REPO: " & $sql,false,true)
-		EndIf
+        If $Num > 0 Then
+            _ArrayAdd($temporalNames, $Num)
+        EndIf
+    Next
 
-		Local $oRecordset = _ADO_Execute($oConnection,$sql)
-		If @error Then Return SetError(@error, @extended, $ADO_RET_FAILURE)
+	$temporalNames[0] = UBound($temporalNames) - 1
 
-		Local $aRecordsetArray = _ADO_Recordset_ToArray($oRecordset, False)
-		Local $aRecordset_inner = _ADO_RecordsetArray_GetContent($aRecordsetArray)
+    _ArraySort($temporalNames,0,1)
 
-		Local $iColumn_count = UBound($aRecordset_inner, $UBOUND_COLUMNS)
-		For $iRecord_idx = 0 To UBound($aRecordset_inner) - 1
-			if $iColumn_count = 1 then
-				If $RepositoryName = "" Then
-					$RepositoryName = $aRecordset_inner[$iRecord_idx][0]
-				EndIf
+    if UBound($temporalNames) = 0 then
+		return $nextBackupDate
+	endif
+
+	$count = 0
+
+    Local $found = False
+    While Not $found
+		$count += 1
+		if $count > $MaxTries then
+			$found = True
+
+			Local $nextBackupDate = $lastBackupDate
+			$nextBackupDate = _DateAdd($type, 1, $nextBackupDate)
+			Local $datearray = StringSplit($nextBackupDate,"/")
+			Local $nextName
+			If $type = "M" then
+				$nextName = Number($datearray[2])
 			EndIf
-		Next
-	EndIf
+			If $type = "D" then
+				$nextName = _DateToDayOfWeek($datearray[1],$datearray[2],$datearray[3])
+			EndIf
 
-	$oRecordset = Null
+			_logmsg($LogFile,"Search " & $type & " failed. Exit with first result",true,true)
+			_logmsg($LogFile,"BackupDate: " & $lastBackupDate & " NextBackupDate: " & $nextBackupDate & " (Tries: " & $count & ")",true,true)
+			ExitLoop
+		endif
 
-	return $RepositoryName
+        $nextBackupDate = _DateAdd($type, 1, $nextBackupDate)
+
+		Local $datearray = StringSplit($nextBackupDate,"/")
+        Local $nextName
+		If $type = "M" then
+			$nextName = Number($datearray[2])
+		EndIf
+		If $type = "D" then
+			$nextName = _DateToDayOfWeek($datearray[1],$datearray[2],$datearray[3])
+		EndIf
+
+        For $i = 1 To $temporalNames[0]
+            If $temporalNames[$i] = $nextName Then
+                $found = True
+                ExitLoop
+            EndIf
+        Next
+
+    WEnd
+
+    Return $nextBackupDate
 EndFunc
 
-; Extract repository id from xml
+; Extract data from xml
 Func _XMLExtractValue($xml,$search)
 	local $XMLValue = 0
 
