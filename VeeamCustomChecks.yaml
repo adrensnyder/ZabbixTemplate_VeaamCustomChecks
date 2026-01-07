@@ -94,7 +94,7 @@ zabbix_export:
           description: 'Numbers of replica type in check'
         - uuid: 28b0d7e7d7234ab0b287268bf62872ac
           name: '[VEEAM] Collect Data'
-          key: 'system.run[C:\zabbix_agent\Avvia_Programmi_Zabbix.exe c:\zabbix_agent\Cst_Check_Veeam.exe  --driver="{$VEEAM.CST.DRIVER}" --server="{$VEEAM.CST.SRV}" --port="{$VEEAM.CST.PORT}" --database="{$VEEAM.CST.DB}" --user="{$VEEAM.CST.USER}" --password="{$VEEAM.CST.PASS}" --agent="{$VEEAM.CST.AGENT.ENABLED}",nowait]'
+          key: 'system.run[c:\zabbix_agent\Cst_Check_Veeam.exe  --driver="{$VEEAM.CST.DRIVER}" --server="{$VEEAM.CST.SRV}" --port="{$VEEAM.CST.PORT}" --database="{$VEEAM.CST.DB}" --user="{$VEEAM.CST.USER}" --password="{$VEEAM.CST.PASS}" --agent="{$VEEAM.CST.AGENT.ENABLED}",nowait]'
           delay: '0;1h/1-7,07:00-08:30;1h/1-7,12:30-14:00'
           trends: '0'
           value_type: TEXT
