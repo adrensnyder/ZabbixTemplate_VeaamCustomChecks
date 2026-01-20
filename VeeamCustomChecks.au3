@@ -1,5 +1,5 @@
 ;###################################################################
-;# Copyright (c) 2023 AdrenSnyder https://github.com/adrensnyder
+;# Copyright (c) 2025 AdrenSnyder https://github.com/adrensnyder
 ;#
 ;# Permission is hereby granted, free of charge, to any person
 ;# obtaining a copy of this software and associated documentation
@@ -80,6 +80,7 @@ Global $sPort = ""
 Global $sUID = ""
 Global $sPWD = ""
 Global $JobTypes = ""
+Global Const $BackupConfigurationJobType = 100
 
 #EndRegion Globals
 
@@ -402,6 +403,7 @@ Func _VeeamDataSearch()
 						"        j.is_deleted::TEXT AS is_job_deleted," & @CRLF & _
 						"        j.latest_result::TEXT AS latest_job_result," & @CRLF & _
 						"        j.schedule_enabled::TEXT AS is_schedule_enabled," & @CRLF & _
+						"        (xpath('//JobOptionsRoot/RunManually/text()', xmlparse(document j.options)))[1]::text AS job_options_runmanually," & @CRLF & _
 						"        j.parent_job_id::TEXT AS parent_job_id," & @CRLF & _
 						"        j.parent_schedule_id::TEXT AS parent_schedule_id," & @CRLF & _
 						"        hc.hosts::TEXT AS backup_hosts" & @CRLF & _
@@ -506,13 +508,24 @@ Func _VeeamDataSearch()
 	$Array_Disc_Tmp = ""
 	$Comma = ""
 
-    ; Get jobs for discovery
+	; Get jobs for discovery
 	$Result_Discovery = _SqlRetrieveData($sqldiscovery)
 	If IsObj($Result_Discovery) then
 		DiscoveryData($Result_Discovery,$sDriver)
 	else
 		_logmsg($LogFile,"Error Main SQL: " & $Result_Discovery,true,true)
 	Endif
+
+	; Backup Configuration Job (PostgreSQL only)
+	If $sDriver = "PostgreSQL ANSI" Then
+		Local $sql_backup_config = _SqlBackupConfigurationJobPostgres()
+		Local $Result_BackupConfig = _SqlRetrieveData($sql_backup_config)
+		If IsObj($Result_BackupConfig) Then
+			BackupConfigurationJobData($Result_BackupConfig)
+		Else
+			_logmsg($LogFile,"Error Backup Configuration Job SQL: " & $Result_BackupConfig,true,true)
+		EndIf
+	EndIf
 
 	; Core data retrieve
 	$Result_Data = _SqlRetrieveData($sql)
@@ -612,6 +625,122 @@ Func _SqlRetrieveData($sql)
 	Return $oRecordset
 EndFunc
 
+Func _IsTrueValue($value)
+	If IsBool($value) Then Return $value
+	Local $s = StringLower(StringStripWS(String($value), 3))
+	Return ($s = "1" Or $s = "true" Or $s = "t" Or $s = "yes")
+EndFunc
+
+Func _IsFalseValue($value)
+	If IsBool($value) Then Return Not $value
+	Local $s = StringLower(StringStripWS(String($value), 3))
+	Return ($s = "0" Or $s = "false" Or $s = "f" Or $s = "no")
+EndFunc
+
+Func _SqlBackupConfigurationJobPostgres()
+	Local $sql = ""
+	$sql = "WITH latest_js AS (" & @CRLF & _
+		   "    SELECT" & @CRLF & _
+		   "        js.id," & @CRLF & _
+		   "        js.job_id," & @CRLF & _
+		   "        js.job_name," & @CRLF & _
+		   "        js.job_type," & @CRLF & _
+		   "        js.creation_time," & @CRLF & _
+		   "        js.end_time," & @CRLF & _
+		   "        js.state," & @CRLF & _
+		   "        js.result," & @CRLF & _
+		   "        js.reason" & @CRLF & _
+		   "    FROM public." & chr(34) & "backup.model.jobsessions" & chr(34) & " js" & @CRLF & _
+		   "    WHERE js.job_type = " & $BackupConfigurationJobType & @CRLF & _
+		   "    ORDER BY js.creation_time DESC" & @CRLF & _
+		   "    LIMIT 1" & @CRLF & _
+		   ")" & @CRLF & _
+		   "SELECT" & @CRLF & _
+		   "    js.job_id::TEXT AS job_id," & @CRLF & _
+		   "    js.job_name::TEXT AS job_name," & @CRLF & _
+		   "    js.job_type::TEXT AS job_type," & @CRLF & _
+		   "    js.creation_time::TEXT AS creation_time," & @CRLF & _
+		   "    js.end_time::TEXT AS end_time," & @CRLF & _
+		   "    js.state::TEXT AS job_state," & @CRLF & _
+		   "    js.result::TEXT AS job_result," & @CRLF & _
+		   "    js.reason::TEXT AS job_reason," & @CRLF & _
+		   "    sl.status::TEXT AS log_status," & @CRLF & _
+		   "    sl.title::TEXT AS log_title," & @CRLF & _
+		   "    sl." & chr(34) & "desc" & chr(34) & "::TEXT AS log_desc," & @CRLF & _
+		   "    sl.starttimeutc::TEXT AS log_starttimeutc," & @CRLF & _
+		   "    sl.updatetimeutc::TEXT AS log_updatetimeutc" & @CRLF & _
+		   "FROM latest_js js" & @CRLF & _
+		   "LEFT JOIN LATERAL (" & @CRLF & _
+		   "    SELECT status, title, " & chr(34) & "desc" & chr(34) & ", starttimeutc, updatetimeutc" & @CRLF & _
+		   "    FROM public.sessionlog" & @CRLF & _
+		   "    WHERE sessionid = js.id" & @CRLF & _
+		   "    ORDER BY updatetimeutc DESC NULLS LAST" & @CRLF & _
+		   "    LIMIT 1" & @CRLF & _
+		   ") sl ON true;"
+	Return $sql
+EndFunc
+
+Func BackupConfigurationJobData($Recordset)
+	If $Recordset.EOF Then Return
+
+	While Not $Recordset.EOF
+
+		Local $MonitorEnabled = 1
+
+		Local $job_name_original = $Recordset.Fields("job_name").Value
+		Local $job_name = StringReplace($job_name_original,",","_")
+
+		Local $backup_creation_time = $Recordset.Fields("creation_time").Value
+		Local $backup_creation_time_date = _DateVeeamFormat($backup_creation_time)
+
+		Local $backup_end_time = $Recordset.Fields("end_time").Value
+		Local $backup_end_time_date = _DateVeeamFormat($backup_end_time)
+
+		Local $backup_state = $Recordset.Fields("job_state").Value
+		Local $backup_result = $Recordset.Fields("job_result").Value
+		Local $backup_reason = $Recordset.Fields("job_reason").Value
+
+		Local $Duration = 0
+		If $backup_end_time_date > $backup_creation_time_date Then
+			$Duration = _DateDiff('n',$backup_creation_time_date,$backup_end_time_date)
+		Else
+			Local $duration_message = "Backup starting or in progress"
+			Local $backup_reason_trim = StringStripWS(String($backup_reason), 3)
+			If $backup_reason_trim = "" Or $backup_reason_trim = "\N" Then
+				$backup_reason = $duration_message
+			Else
+				$backup_reason &= ". " & $duration_message
+			EndIf
+		EndIf
+
+		Local $backup_task_status = $Recordset.Fields("log_status").Value
+		Local $backup_task_reason = $Recordset.Fields("log_title").Value
+		If $backup_task_reason = "" Then
+			$backup_task_reason = $Recordset.Fields("log_desc").Value
+		EndIf
+
+		Local $DateDiff = _DateDiff('D',$backup_creation_time_date,_NowCalc())
+
+		$JobsCount += 1
+
+		$Array_Disc_Tmp &= $Comma & "{" & chr(34) & "{#VEEAMJOB}" & chr(34) & ":" & chr(34) & $job_name & "" & chr(34) & "}"
+		$Comma = ","
+
+		$Zabbix_Items = _add_item_zabbix($Zabbix_Items,"backup.veeam.customchecks.enabled[" & $job_name & "]",$MonitorEnabled)
+		$Zabbix_Items = _add_item_zabbix($Zabbix_Items,"backup.veeam.customchecks.job.state[" & $job_name & "]",$backup_state)
+		$Zabbix_Items = _add_item_zabbix($Zabbix_Items,"backup.veeam.customchecks.job.result[" & $job_name & "]",$backup_result)
+		$Zabbix_Items = _add_item_zabbix($Zabbix_Items,"backup.veeam.customchecks.job.reason[" & $job_name & "]",$backup_reason)
+		$Zabbix_Items = _add_item_zabbix($Zabbix_Items,"backup.veeam.customchecks.status[" & $job_name & "]",$backup_task_status)
+		$Zabbix_Items = _add_item_zabbix($Zabbix_Items,"backup.veeam.customchecks.reason[" & $job_name & "]",$backup_task_reason)
+		$Zabbix_Items = _add_item_zabbix($Zabbix_Items,"backup.veeam.customchecks.creationtime[" & $job_name & "]",$backup_creation_time_date)
+		$Zabbix_Items = _add_item_zabbix($Zabbix_Items,"backup.veeam.customchecks.endtime[" & $job_name & "]",$backup_end_time_date)
+		$Zabbix_Items = _add_item_zabbix($Zabbix_Items,"backup.veeam.customchecks.datediff[" & $job_name & "]",$DateDiff)
+		$Zabbix_Items = _add_item_zabbix($Zabbix_Items,"backup.veeam.customchecks.duration[" & $job_name & "]",$Duration)
+
+		$Recordset.MoveNext()
+	WEnd
+EndFunc
+
 Func DiscoveryData($Recordset,$sDriver)
 	$count = 0
 
@@ -638,15 +767,29 @@ Func DiscoveryData($Recordset,$sDriver)
 			$CheckJobType = StringRegExp($JobTypes,$regex)
 		Endif
 
-		If ( ($is_schedule_enabled = 1 or $is_schedule_enabled = "true" ) and ( $is_job_deleted = 0 or $is_job_deleted = "false" ) and $CheckJobType > 0 ) then
+		Local $schedule_enabled_ok = 0
+		Local $job_deleted_ok = 0
+		Local $run_manually = 0
+
+		If $sDriver = "PostgreSQL ANSI" then
+			Local $job_options_runmanually = $Recordset.Fields("job_options_runmanually").Value
+			$schedule_enabled_ok = _IsTrueValue($is_schedule_enabled)
+			$job_deleted_ok = _IsFalseValue($is_job_deleted)
+			$run_manually = _IsTrueValue($job_options_runmanually)
+		Else
+			$schedule_enabled_ok = ($is_schedule_enabled = 1 Or $is_schedule_enabled = "true")
+			$job_deleted_ok = ($is_job_deleted = 0 Or $is_job_deleted = "false")
+		EndIf
+
+		If ($schedule_enabled_ok And $job_deleted_ok And $CheckJobType > 0 And Not $run_manually) Then
 			$MonitorEnabled = 1
-		Endif
+		EndIf
 
 		If $MonitorEnabled = 1 Then
 			$JobsCount += 1
 		EndIf
 
-		If $MonitorEnabled = 1 Then
+		If ($job_deleted_ok And $CheckJobType > 0) Then
 			$Array_Disc_Tmp &= $Comma & "{" & chr(34) & "{#VEEAMJOB}" & chr(34) & ":" & chr(34) & $job_name & "" & chr(34) & "}"
 			$Comma = ","
 
