@@ -5,9 +5,12 @@ For this reason, I created my own template, which connects directly to MS SQL or
 
 ## Database Versions
 - **v11** uses mostly SQL Server.
-- **v12** uses PostgreSQL and requires psqlodbc to be installed in both 32-bit and 64-bit versions from [here](https://www.postgresql.org/ftp/odbc/releases/).
+- **v12/v13** uses PostgreSQL and requires psqlodbc to be installed in both 32-bit and 64-bit versions from [here](https://www.postgresql.org/ftp/odbc/releases/).
   - Default port: 5432
   - Default user: `postgres` (without password)
+ 
+## Backup Configuration Monitoring  
+This job will be monitored only for PostgreSQL, since MS SQL queries will no longer be updated
 
 ## Status Codes
 - **Status 0:** Backup succeeded
