@@ -44,11 +44,6 @@ The template includes several configurable MACROS with descriptions of their usa
 
 The differences from the official template are that this version allows you to directly monitor the latest backup status, identify any jobs that ended with errors or warnings, and detect any backups that are delayed for any reason.
 The original template does not monitor all types (IDs) of backup jobs and only retrieves the various sessions. If a session for a job returns an error but the next one is successful, the alert remains in Zabbix for a while, resulting in a false positive.
-
-# ToDo
-- Add detection of Disabled jobs
-- Add detection if a job have the Automatic Schedule enabled
-- Add monitor of Internal database backup 
  
 # Copyright
 This project is an unofficial Zabbix template for monitoring Veeam backup jobs. It is not affiliated with, endorsed, or supported by Veeam Software in any way.  
